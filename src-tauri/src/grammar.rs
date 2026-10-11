@@ -108,6 +108,26 @@ pub fn tokenize(lex: &Lexicon, chars: &[char]) -> Vec<Token> {
     out
 }
 
+/// Sujet « groupe du nom » en début de phrase : « Les chats | dorment », « Le petit chien | aboie ».
+fn noun_subject(lex: &Lexicon, toks: &[Token], i: usize) -> Option<(u8, usize)> {
+    let start = (0..=i).rev().take_while(|k| toks[*k].sent == toks[i].sent).last()?;
+    let span = i.checked_sub(start)?;
+    if !(2..=3).contains(&span) {
+        return None;
+    }
+    let det = toks[start].lower.as_str();
+    let n = if DET_PLUR.contains(&det) && det != "aux" {
+        6
+    } else if DET_SING.contains(&det) && !matches!(det, "du" | "au") {
+        3
+    } else {
+        return None;
+    };
+    let noun = lex.lookup(&toks[i - 1].lower)?;
+    let adj_ok = span == 2 || lex.lookup(&toks[start + 1].lower).is_some_and(|e| e.top_tag() == "ADJ");
+    (noun.top_tag() == "NOM" && adj_ok).then_some((n, i - 1))
+}
+
 /// Personne du sujet pronom juste avant le mot `i` (en sautant ne, le, lui…).
 /// « il nous parle » -> il ; « les enfants nous parlent » -> inconnu.
 fn subject_before(toks: &[Token], i: usize) -> Option<(u8, usize)> {
@@ -399,8 +419,9 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             }
         }
 
-        // 5. accord sujet-verbe : « ils mangent »
-        if let Some((p, k)) = subj {
+        // 5. accord sujet-verbe : « ils mangent », « les chats dorment »
+        let noun_subj = if subj.is_none() && verb_first { noun_subject(lex, &toks, i) } else { None };
+        if let Some((p, k)) = subj.or(noun_subj) {
             if e.is_finite() && !e.has_person(p) && (verb_first || i == k + 1) {
                 let target = e
                     .verbs
@@ -412,9 +433,17 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                     })
                     .find_map(|(l, f)| lex.conj(l, Form { person: p, ..f }));
                 if let Some(target) = target {
-                    let who = toks[k].lower.trim_end_matches('\'');
-                    let who = if who == "j" { "je" } else { who };
-                    fix(target.to_string(), ending_tip(p, if who.is_empty() { pronoun(p) } else { who }), "accord");
+                    let tip = if noun_subj.is_some() {
+                        let start = toks[..=k].iter().rposition(|t| t.sent != toks[i].sent).map_or(0, |x| x + 1);
+                        let group: Vec<&str> = toks[start..=k].iter().map(|t| t.lower.as_str()).collect();
+                        let who = if p == 6 { "ils" } else { "il" };
+                        format!("« {} » = « {who} » : {}", group.join(" "), ending_tip(p, who).trim_start_matches(&format!("Avec « {who} », ")[..]))
+                    } else {
+                        let who = toks[k].lower.trim_end_matches('\'');
+                        let who = if who == "j" { "je" } else { who };
+                        ending_tip(p, if who.is_empty() { pronoun(p) } else { who })
+                    };
+                    fix(target.to_string(), tip, "accord");
                     continue;
                 }
             }
@@ -486,6 +515,8 @@ mod tests {
             ("une ecole ", "ecole", "école"),
             ("leur parents ", "leur", "leurs"),
             ("Mezon de campagne ", "Mezon", "Maison"),
+            ("les chats dorme ", "dorme", "dorment"),
+            ("Le petit chien aboient ", "aboient", "aboie"),
         ];
         let failed: Vec<&str> = cases.iter().filter(|(s, a, b)| !one(s, a, b)).map(|(s, _, _)| *s).collect();
 
@@ -509,6 +540,9 @@ mod tests {
             "c'est bien ",
             "ils ont mangé ",
             "on a gagné ",
+            "les enfants jouent ",
+            "le chat dort ",
+            "les livres de mon frère sont ",
         ];
         let noisy: Vec<String> =
             clean.iter().filter_map(|s| { let f = fixes(s); (!f.is_empty()).then(|| format!("{s} -> {f:?}")) }).collect();
