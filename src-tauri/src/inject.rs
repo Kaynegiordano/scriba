@@ -14,10 +14,18 @@ fn key(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     }
 }
 
+const GAP_MS: u64 = 8;
+
 fn send(inputs: &[INPUT]) {
     unsafe {
         SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
     }
+}
+
+/// Une touche (code virtuel seul : avec le code matériel, le Bloc-notes récent
+/// mélange les lettres).
+fn press(vk: VIRTUAL_KEY, _hkl: HKL) -> [INPUT; 2] {
+    [key(vk, 0, 0), key(vk, 0, KEYEVENTF_KEYUP)]
 }
 
 /// Efface `erase` caractères puis tape `text`.
@@ -25,14 +33,19 @@ fn send(inputs: &[INPUT]) {
 /// (les applis récentes, Bloc-notes ou Word, mélangent parfois les caractères
 /// Unicode simulés) ; le reste (ê, ï…) passe en Unicode.
 pub fn replace(erase: usize, text: &str) {
-    let back: Vec<INPUT> = (0..erase).flat_map(|_| [key(VK_BACK, 0, 0), key(VK_BACK, 0, KEYEVENTF_KEYUP)]).collect();
-    send(&back);
-    std::thread::sleep(Duration::from_millis(20));
-
     let (hkl, caps) = unsafe {
         let tid = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
         (GetKeyboardLayout(tid), GetKeyState(VK_CAPITAL as i32) & 1 != 0)
     };
+    // Une touche à la fois, espacées : envoyées d'un bloc, les applis occupées
+    // (Bloc-notes avec correcteur, Word, navigateurs) en perdent une partie.
+    let gap = Duration::from_millis(std::env::var("SCRIBA_GAP_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(GAP_MS));
+    for _ in 0..erase {
+        send(&press(VK_BACK, hkl));
+        std::thread::sleep(gap);
+    }
+    std::thread::sleep(gap * 3);
+
     for ch in text.chars() {
         let mut units = [0u16; 2];
         let units = ch.encode_utf16(&mut units);
@@ -40,14 +53,14 @@ pub fn replace(erase: usize, text: &str) {
         let (vk, mods) = ((scan & 0xFF) as u16, (scan >> 8) & 0xFF);
         if scan != -1 && mods & !1 == 0 {
             let shift = mods & 1 != 0;
+            let [shift_down, shift_up] = press(VK_SHIFT, hkl);
             let mut seq = Vec::with_capacity(4);
             if shift {
-                seq.push(key(VK_SHIFT, 0, 0));
+                seq.push(shift_down);
             }
-            seq.push(key(vk, 0, 0));
-            seq.push(key(vk, 0, KEYEVENTF_KEYUP));
+            seq.extend(press(vk, hkl));
             if shift {
-                seq.push(key(VK_SHIFT, 0, KEYEVENTF_KEYUP));
+                seq.push(shift_up);
             }
             send(&seq);
         } else {
@@ -55,6 +68,6 @@ pub fn replace(erase: usize, text: &str) {
                 send(&[key(0, *u, KEYEVENTF_UNICODE), key(0, *u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]);
             }
         }
-        std::thread::sleep(Duration::from_millis(3));
+        std::thread::sleep(gap);
     }
 }

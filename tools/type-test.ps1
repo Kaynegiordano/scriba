@@ -1,7 +1,7 @@
 # Test de bout en bout : tape du texte touche par touche (comme un vrai clavier)
 # dans le Bloc-notes, éventuellement suivi de touches F1..F6, puis relit le contenu.
 # Usage : powershell -File tools\type-test.ps1 -Text "la mezon{F1}est grande"
-param([string]$Text = "la mezon{F1}", [int]$DelayMs = 40)
+param([string]$Text = "la mezon{F1}", [int]$DelayMs = 40, [Int64]$Hwnd = 0, [switch]$NoRead, [switch]$NoClear)
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"
@@ -20,12 +20,17 @@ public static class Kb {
 }
 "@
 
-$np = Get-Process Notepad -ErrorAction Stop | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
-[Kb]::SetForegroundWindow($np.MainWindowHandle) | Out-Null
+if ($Hwnd -eq 0) {
+  $Hwnd = (Get-Process Notepad -ErrorAction Stop | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1).MainWindowHandle
+}
+$h = [IntPtr]$Hwnd
+[Kb]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 300
-# tout effacer
-[Kb]::Key(0x11, $false); [Kb]::Key(0x41, $false); [Kb]::Key(0x41, $true); [Kb]::Key(0x11, $true); [Kb]::Key(0x2E, $false); [Kb]::Key(0x2E, $true)
-Start-Sleep -Milliseconds 200
+if (-not $NoClear) {
+  # tout effacer
+  [Kb]::Key(0x11, $false); [Kb]::Key(0x41, $false); [Kb]::Key(0x41, $true); [Kb]::Key(0x11, $true); [Kb]::Key(0x2E, $false); [Kb]::Key(0x2E, $true)
+  Start-Sleep -Milliseconds 200
+}
 
 $tokens = [regex]::Matches($Text, "\{F\d\}|\{\^\}|\{TOGGLE\}|.")
 foreach ($t in $tokens) {
@@ -56,8 +61,9 @@ foreach ($t in $tokens) {
   Start-Sleep -Milliseconds $DelayMs
 }
 Start-Sleep -Milliseconds 400
+if ($NoRead) { return }
 
-$root = [System.Windows.Automation.AutomationElement]::FromHandle($np.MainWindowHandle)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($h)
 $cond = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ControlTypeProperty), ([System.Windows.Automation.ControlType]::Document)
 $doc = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
 if (-not $doc) {

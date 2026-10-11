@@ -7,6 +7,8 @@
   --chip-hover: rgba(255, 255, 255, 0.11);
   --accent: #7c8cff;
   --verb: #c79bff;
+  --warn: #ffb35c;
+  --warn-bg: rgba(255, 179, 92, 0.1);
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
 }
@@ -21,6 +23,8 @@
     --chip-hover: rgba(20, 24, 40, 0.09);
     --accent: #4f5fe8;
     --verb: #8a4fd8;
+    --warn: #c46a00;
+    --warn-bg: rgba(230, 130, 20, 0.09);
   }
 }
 
@@ -153,6 +157,44 @@ body,
 
 .sugg.verb .meta {
   color: var(--verb);
+}
+
+.fix {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  max-width: 330px;
+  padding: 5px 10px 5px 6px;
+  border: 1.5px solid var(--warn);
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  animation: pop 0.18s ease-out both;
+}
+
+.fix .fk {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.fix .w {
+  font-size: 15px;
+}
+
+.fix s {
+  opacity: 0.55;
+}
+
+.fix .meta {
+  max-width: 270px;
+  color: var(--warn);
+}
+
+.fix:hover {
+  filter: brightness(1.12);
 }
 
 .hide {

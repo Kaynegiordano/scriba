@@ -1,5 +1,5 @@
 //! Écoute globale du clavier et de la souris (hooks bas niveau Windows) pour
-//! suivre le mot en cours de frappe dans n'importe quelle application.
+//! suivre la phrase en cours de frappe dans n'importe quelle application.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
@@ -12,23 +12,88 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 /// Marque nos propres frappes simulées pour que le hook les ignore.
 pub const MAGIC: usize = 0x5C21_BA00;
+/// Au-delà, on oublie le début de la phrase.
+const MAX_CHARS: usize = 240;
 
 pub enum Msg {
-    Word(String),
+    /// la phrase telle que tapée depuis le dernier clic / retour à la ligne
+    Text(String),
     Pick(usize),
+    /// appliquer la correction proposée (F7)
+    Fix,
+    /// ponctuation tapée juste après une espace ajoutée par Scriba : « maison , » -> « maison, »
+    Punct(char),
     Toggle,
 }
 
 struct State {
-    buf: Vec<char>,
+    sentence: Vec<char>,
     dead: Option<char>,
     caps: bool,
     last_fg: isize,
+    /// fenêtre où Scriba se tait (jeu en plein écran…)
+    paused: bool,
 }
 
-static STATE: Mutex<State> = Mutex::new(State { buf: Vec::new(), dead: None, caps: false, last_fg: 0 });
+static STATE: Mutex<State> =
+    Mutex::new(State { sentence: Vec::new(), dead: None, caps: false, last_fg: 0, paused: false });
+
+/// Applications d'écriture : jamais mises en veille, même en plein écran.
+const WRITING_APPS: &[&str] = &[
+    "winword.exe", "notepad.exe", "wordpad.exe", "msedge.exe", "chrome.exe", "brave.exe", "firefox.exe",
+    "opera.exe", "powerpnt.exe", "excel.exe", "onenote.exe", "outlook.exe", "olk.exe", "soffice.bin",
+    "swriter.exe", "teams.exe", "ms-teams.exe",
+];
+
+fn exe_name(hwnd: HWND) -> String {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return String::new();
+        }
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(h);
+        if !ok {
+            return String::new();
+        }
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        path.rsplit('\\').next().unwrap_or("").to_lowercase()
+    }
+}
+
+/// Une fenêtre qui couvre tout l'écran et n'est pas une appli d'écriture : sûrement un jeu.
+fn looks_like_game(hwnd: HWND) -> bool {
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    unsafe {
+        let mut r: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut r) == 0 {
+            return false;
+        }
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) == 0 {
+            return false;
+        }
+        let m = mi.rcMonitor;
+        let fullscreen = r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom;
+        fullscreen && !WRITING_APPS.contains(&exe_name(hwnd).as_str())
+    }
+}
 static TX: OnceLock<Sender<Msg>> = OnceLock::new();
 pub static VISIBLE: AtomicBool = AtomicBool::new(true);
+/// Une correction est affichée (F7 l'applique).
+pub static CORRECTION: AtomicBool = AtomicBool::new(false);
+/// Scriba vient d'ajouter une espace après un mot choisi.
+static AUTO_SPACE: AtomicBool = AtomicBool::new(false);
 pub static OWN_HWND: AtomicIsize = AtomicIsize::new(0);
 /// Touche dont on doit aussi avaler le relâchement.
 static SWALLOW_UP: AtomicU32 = AtomicU32::new(0);
@@ -40,13 +105,26 @@ fn send(m: Msg) {
 }
 
 fn publish(st: &State) {
-    send(Msg::Word(st.buf.iter().collect()));
+    send(Msg::Text(st.sentence.iter().collect()));
 }
 
-pub fn reset() {
-    let mut st = STATE.lock().unwrap();
-    st.buf.clear();
+fn clear(st: &mut State) {
+    st.sentence.clear();
     st.dead = None;
+}
+
+fn current_word(st: &State) -> usize {
+    st.sentence.iter().rev().take_while(|c| c.is_alphabetic()).count()
+}
+
+/// Après une frappe simulée par Scriba : retire `erase` caractères et ajoute `text`.
+pub fn set_tail(erase: usize, text: &str, auto_space: bool) {
+    let mut st = STATE.lock().unwrap();
+    let keep = st.sentence.len().saturating_sub(erase);
+    st.sentence.truncate(keep);
+    st.sentence.extend(text.chars());
+    st.dead = None;
+    AUTO_SPACE.store(auto_space, Ordering::Relaxed);
 }
 
 /// Dernière fenêtre (autre que Scriba) où l'élève écrivait.
@@ -131,20 +209,24 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     }
     if fg != st.last_fg {
         st.last_fg = fg;
-        st.buf.clear();
-        st.dead = None;
+        st.paused = looks_like_game(fg as HWND);
+        clear(&mut st);
         publish(&st);
     }
+    if st.paused {
+        return false;
+    }
 
+    let visible = VISIBLE.load(Ordering::Relaxed);
+    let no_mods = !ctrl && !alt && !shift;
     // F1..F6 : choisir une proposition
-    if (VK_F1..=VK_F6).contains(&vk)
-        && VISIBLE.load(Ordering::Relaxed)
-        && !st.buf.is_empty()
-        && !ctrl
-        && !alt
-        && !shift
-    {
+    if (VK_F1..=VK_F6).contains(&vk) && visible && no_mods && current_word(&st) > 0 {
         send(Msg::Pick((vk - VK_F1) as usize));
+        return true;
+    }
+    // F7 : appliquer la correction
+    if vk == VK_F7 && visible && no_mods && CORRECTION.load(Ordering::Relaxed) {
+        send(Msg::Fix);
         return true;
     }
 
@@ -153,21 +235,22 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         | VK_RMENU | VK_LWIN | VK_RWIN => return false,
         VK_BACK => {
             if ctrl {
-                st.buf.clear();
+                clear(&mut st);
             } else {
-                st.buf.pop();
+                st.sentence.pop();
             }
             st.dead = None;
+            AUTO_SPACE.store(false, Ordering::Relaxed);
             publish(&st);
             return false;
         }
         _ => {}
     }
+    let auto_space = AUTO_SPACE.swap(false, Ordering::Relaxed);
 
-    // Raccourcis (Ctrl+…, Alt+…) : on perd le fil du mot
+    // Raccourcis (Ctrl+…, Alt+…) : on perd le fil de la phrase
     if ctrl != alt {
-        st.buf.clear();
-        st.dead = None;
+        clear(&mut st);
         publish(&st);
         return false;
     }
@@ -207,13 +290,22 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     let dead = st.dead.take();
     match ch {
         Some(c) if c.is_alphabetic() => {
-            let c = dead.and_then(|d| compose(d, c)).unwrap_or(c);
-            st.buf.push(c);
-            if st.buf.len() > 40 {
-                st.buf.clear();
-            }
+            st.sentence.push(dead.and_then(|d| compose(d, c)).unwrap_or(c));
         }
-        _ => st.buf.clear(),
+        // ponctuation collée au mot choisi : on retire l'espace ajoutée par Scriba
+        Some(c @ (',' | '.' | ')')) if auto_space && st.sentence.last() == Some(&' ') => {
+            send(Msg::Punct(c));
+            return true;
+        }
+        // retour à la ligne, tabulation, échap, flèches… : nouvelle phrase
+        Some(c) if c.is_control() => clear(&mut st),
+        Some(c) => st.sentence.push(c),
+        None => clear(&mut st),
+    }
+    if st.sentence.len() > MAX_CHARS {
+        let cut = st.sentence.iter().skip(MAX_CHARS / 2).position(|c| *c == ' ').map(|p| p + MAX_CHARS / 2 + 1);
+        let cut = cut.unwrap_or(st.sentence.len());
+        st.sentence.drain(..cut);
     }
     publish(&st);
     false
@@ -233,11 +325,11 @@ unsafe extern "system" fn mouse_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESU
                 && m.pt.y >= r.top
                 && m.pt.y < r.bottom;
             if !on_bar {
-                // un clic déplace le curseur : le mot en cours n'est plus fiable
+                // un clic déplace le curseur : la phrase suivie n'est plus fiable
                 let mut st = STATE.lock().unwrap();
-                if !st.buf.is_empty() {
-                    st.buf.clear();
-                    st.dead = None;
+                AUTO_SPACE.store(false, Ordering::Relaxed);
+                if !st.sentence.is_empty() {
+                    clear(&mut st);
                     publish(&st);
                 }
             }

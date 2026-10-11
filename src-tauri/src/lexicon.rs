@@ -1,15 +1,110 @@
 //! Dictionnaire (Lexique 3) et moteur de propositions : orthographique
-//! (début de mot, accents ignorés) + phonétique (mot écrit « comme on l'entend »).
+//! (début de mot, accents ignorés) + phonétique (mot écrit « comme on l'entend »),
+//! classées selon la grammaire de la phrase (après « ils » : mangent, etc.).
 
 use crate::phonetics::{key, phonemes};
 use serde::Serialize;
 use std::collections::HashMap;
 
-struct Entry {
-    word: String,
+/// Genre-nombre (masque) : masculin/féminin × singulier/pluriel.
+pub const MS: u8 = 1;
+pub const MP: u8 = 2;
+pub const FS: u8 = 4;
+pub const FP: u8 = 8;
+pub const SING: u8 = MS | FS;
+pub const PLUR: u8 = MP | FP;
+
+pub const IND: u8 = 0;
+pub const CND: u8 = 1;
+pub const SUB: u8 = 2;
+pub const IMP: u8 = 3;
+pub const PAR: u8 = 4;
+pub const INF: u8 = 5;
+
+pub const PRE: u8 = 0;
+pub const IMPF: u8 = 1;
+pub const PAS: u8 = 2;
+pub const FUT: u8 = 3;
+
+/// Une analyse verbale : mode, temps, personne (1..6 = je..ils, 0 = sans personne).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Form {
+    pub mode: u8,
+    pub tense: u8,
+    pub person: u8,
+}
+
+impl Form {
+    fn parse(s: &str) -> Option<Form> {
+        let mut it = s.split(':');
+        let mode = match it.next()? {
+            "ind" => IND,
+            "cnd" => CND,
+            "sub" => SUB,
+            "imp" => IMP,
+            "par" => PAR,
+            "inf" => INF,
+            _ => return None,
+        };
+        let tense = match it.next().unwrap_or("") {
+            "pre" | "" => PRE,
+            "imp" => IMPF,
+            "pas" => PAS,
+            "fut" => FUT,
+            _ => PRE,
+        };
+        let person = match it.next().unwrap_or("") {
+            "1s" => 1,
+            "2s" => 2,
+            "3s" => 3,
+            "1p" => 4,
+            "2p" => 5,
+            "3p" => 6,
+            _ => 0,
+        };
+        Some(Form { mode, tense, person })
+    }
+
+    /// Forme conjuguée avec un sujet (indicatif, conditionnel, subjonctif).
+    pub fn finite(&self) -> bool {
+        self.mode <= SUB
+    }
+}
+
+pub struct Entry {
+    pub word: String,
     weight: f32,
-    tag: &'static str,
+    /// catégories Lexique, de la plus fréquente à la moins fréquente (« VER,NOM »)
+    tags: Box<str>,
+    pub gn: u8,
+    /// (lemme, analyses), du lemme le plus fréquent au moins fréquent
+    pub verbs: Vec<(u32, Vec<Form>)>,
+    label: &'static str,
     info: String,
+}
+
+impl Entry {
+    pub fn top_tag(&self) -> &str {
+        self.tags.split(',').next().unwrap_or("").split(':').next().unwrap_or("")
+    }
+    pub fn forms(&self) -> impl Iterator<Item = (u32, Form)> + '_ {
+        self.verbs.iter().flat_map(|(l, fs)| fs.iter().map(move |f| (*l, *f)))
+    }
+    pub fn is_finite(&self) -> bool {
+        self.forms().any(|(_, f)| f.finite())
+    }
+    pub fn has_person(&self, p: u8) -> bool {
+        self.forms().any(|(_, f)| f.finite() && f.person == p)
+    }
+    pub fn is_infinitive(&self) -> bool {
+        self.forms().any(|(_, f)| f.mode == INF)
+    }
+    pub fn is_participle(&self) -> bool {
+        self.forms().any(|(_, f)| f.mode == PAR && f.tense == PAS)
+    }
+    pub fn lemma(&self) -> Option<u32> {
+        self.verbs.first().map(|(l, _)| *l)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -21,10 +116,25 @@ pub struct Suggestion {
     pub info: String,
 }
 
+/// Ce que la phrase attend au mot en cours (calculé par `grammar::hint`).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Hint {
+    /// personne du sujet (1..6)
+    pub person: Option<u8>,
+    /// après avoir / être : participe passé
+    pub participle: bool,
+    /// après « pour », « de », « il va »… : infinitif
+    pub infinitive: bool,
+    /// après un déterminant : SING ou PLUR
+    pub number: Option<u8>,
+}
+
 pub struct Lexicon {
     entries: Vec<Entry>,
     by_ortho: Vec<(String, u32)>,
     by_phon: Vec<(String, u32)>,
+    lemmas: Vec<String>,
+    conj: HashMap<(u32, Form), u32>,
 }
 
 pub fn fold(s: &str) -> String {
@@ -46,11 +156,11 @@ pub fn fold(s: &str) -> String {
     out
 }
 
-fn tag_label(tags: &str, is_verb: bool) -> &'static str {
+fn tag_label(top: &str, is_verb: bool) -> &'static str {
     if is_verb {
         return "verbe";
     }
-    match tags.split(',').next().unwrap_or("").split(':').next().unwrap_or("") {
+    match top {
         "NOM" => "nom",
         "ADJ" => "adj.",
         "ADV" => "adv.",
@@ -64,50 +174,48 @@ fn tag_label(tags: &str, is_verb: bool) -> &'static str {
     }
 }
 
-fn person(p: &str) -> &'static str {
+pub fn pronoun(p: u8) -> &'static str {
     match p {
-        "1s" => "je",
-        "2s" => "tu",
-        "3s" => "il",
-        "1p" => "nous",
-        "2p" => "vous",
-        "3p" => "ils",
+        1 => "je",
+        2 => "tu",
+        3 => "il",
+        4 => "nous",
+        5 => "vous",
+        6 => "ils",
         _ => "",
     }
 }
 
-/// « ind:pre:1s;ind:pre:3s;sub:pre:3s » -> « présent (je, il) »
-fn verb_form(infover: &str) -> String {
-    const MODES: [&str; 6] = ["ind", "cnd", "sub", "imp", "par", "inf"];
-    let items: Vec<Vec<&str>> = infover.split(';').filter(|s| !s.is_empty()).map(|s| s.split(':').collect()).collect();
-    let Some(mode) = MODES.iter().find(|m| items.iter().any(|it| it[0] == **m)) else {
+/// [manger: ind:pre:1s, ind:pre:3s, sub:pre:3s] -> « présent (je, il) »
+fn verb_form(forms: &[Form]) -> String {
+    const MODES: [u8; 6] = [IND, CND, SUB, IMP, PAR, INF];
+    let Some(mode) = MODES.iter().copied().find(|m| forms.iter().any(|f| f.mode == *m)) else {
         return String::new();
     };
-    let tense = items.iter().find(|it| it[0] == *mode).and_then(|it| it.get(1).copied()).unwrap_or("");
-    let persons: Vec<&str> = items
-        .iter()
-        .filter(|it| it[0] == *mode && it.get(1).copied() == Some(tense))
-        .filter_map(|it| it.get(2).map(|p| person(p)))
-        .filter(|p| !p.is_empty())
-        .collect();
-    let tense_name = match (*mode, tense) {
-        ("inf", _) => "infinitif",
-        ("par", "pas") => "participe passé",
-        ("par", _) => "participe présent",
-        ("imp", _) => "impératif",
-        ("cnd", _) => "conditionnel",
-        ("sub", "imp") => "subj. imparfait",
-        ("sub", _) => "subjonctif",
-        (_, "pre") => "présent",
-        (_, "imp") => "imparfait",
-        (_, "pas") => "passé simple",
-        (_, "fut") => "futur",
+    let tense = forms.iter().find(|f| f.mode == mode).map(|f| f.tense).unwrap_or(PRE);
+    let mut persons: Vec<u8> =
+        forms.iter().filter(|f| f.mode == mode && f.tense == tense && f.person > 0).map(|f| f.person).collect();
+    persons.sort_unstable();
+    persons.dedup();
+    let tense_name = match (mode, tense) {
+        (INF, _) => "infinitif",
+        (PAR, PAS) => "participe passé",
+        (PAR, _) => "participe présent",
+        (IMP, _) => "impératif",
+        (CND, _) => "conditionnel",
+        (SUB, IMPF) => "subj. imparfait",
+        (SUB, _) => "subjonctif",
+        (_, PRE) => "présent",
+        (_, IMPF) => "imparfait",
+        (_, PAS) => "passé simple",
+        (_, FUT) => "futur",
         _ => "",
     };
     if persons.is_empty() {
         tense_name.to_string()
     } else {
-        format!("{tense_name} ({})", persons.join(", "))
+        let names: Vec<&str> = persons.iter().map(|p| pronoun(*p)).collect();
+        format!("{tense_name} ({})", names.join(", "))
     }
 }
 
@@ -136,30 +244,66 @@ fn levenshtein1(a: &[u8], b: &[u8]) -> bool {
     }
 }
 
+fn add(score: &mut HashMap<u32, f32>, idx: u32, s: f32) {
+    let e = score.entry(idx).or_insert(f32::MIN);
+    if s > *e {
+        *e = s;
+    }
+}
+
 impl Lexicon {
     pub fn load(data: &str) -> Self {
         let mut entries = Vec::with_capacity(130_000);
         let mut by_ortho = Vec::with_capacity(130_000);
         let mut by_phon = Vec::with_capacity(140_000);
+        let mut lemmas: Vec<String> = Vec::new();
+        let mut lemma_ids: HashMap<String, u32> = HashMap::new();
+        let mut conj: HashMap<(u32, Form), u32> = HashMap::new();
+
         for line in data.lines() {
             let mut f = line.split('\t');
-            let (Some(word), Some(phons), Some(freq), Some(tags), lemma, infover) =
-                (f.next(), f.next(), f.next(), f.next(), f.next().unwrap_or(""), f.next().unwrap_or(""))
-            else {
+            let (Some(word), Some(phons), Some(freq), Some(tags)) = (f.next(), f.next(), f.next(), f.next()) else {
                 continue;
             };
+            let verbs_col = f.next().unwrap_or("");
+            let gn = u8::from_str_radix(f.next().unwrap_or("0"), 16).unwrap_or(0);
             let idx = entries.len() as u32;
-            let is_verb = !infover.is_empty() && tags.split(',').next().is_some_and(|t| t == "VER" || t == "AUX");
-            let info = if is_verb {
-                let form = verb_form(infover);
-                if form == "infinitif" || lemma.is_empty() { form } else { format!("{lemma} · {form}") }
-            } else {
-                String::new()
+            let weight = (1.0 + freq.parse::<f32>().unwrap_or(0.0)).ln();
+
+            let mut verbs = Vec::new();
+            for part in verbs_col.split('|').filter(|p| !p.is_empty()) {
+                let Some((lemma, items)) = part.split_once('=') else { continue };
+                let id = *lemma_ids.entry(lemma.to_string()).or_insert_with(|| {
+                    lemmas.push(lemma.to_string());
+                    (lemmas.len() - 1) as u32
+                });
+                let forms: Vec<Form> = items.split(';').filter_map(Form::parse).collect();
+                for form in &forms {
+                    // forme la plus fréquente pour (lemme, temps, personne)
+                    let keep = conj.get(&(id, *form)).is_none_or(|old| entries_weight(&entries, *old) < weight);
+                    if keep {
+                        conj.insert((id, *form), idx);
+                    }
+                }
+                verbs.push((id, forms));
+            }
+
+            let top = tags.split(',').next().unwrap_or("").split(':').next().unwrap_or("");
+            let is_verb = !verbs.is_empty() && (top == "VER" || top == "AUX");
+            let info = match verbs.first() {
+                Some((l, forms)) if is_verb => {
+                    let form = verb_form(forms);
+                    if form == "infinitif" { form } else { format!("{} · {form}", lemmas[*l as usize]) }
+                }
+                _ => String::new(),
             };
             entries.push(Entry {
                 word: word.to_string(),
-                weight: (1.0 + freq.parse::<f32>().unwrap_or(0.0)).ln(),
-                tag: tag_label(tags, is_verb),
+                weight,
+                tags: tags.into(),
+                gn,
+                verbs,
+                label: tag_label(top, is_verb),
                 info,
             });
             by_ortho.push((fold(word), idx));
@@ -174,21 +318,75 @@ impl Lexicon {
         }
         by_ortho.sort_unstable();
         by_phon.sort_unstable();
-        Lexicon { entries, by_ortho, by_phon }
+        Lexicon { entries, by_ortho, by_phon, lemmas, conj }
     }
 
-    pub fn suggest(&self, typed: &str, max: usize) -> Vec<Suggestion> {
+    /// Le mot exact (minuscules), s'il existe.
+    pub fn lookup(&self, word: &str) -> Option<&Entry> {
+        let lower = word.to_lowercase();
+        range(&self.by_ortho, &fold(&lower))
+            .iter()
+            .map(|(_, i)| &self.entries[*i as usize])
+            .find(|e| e.word == lower)
+    }
+
+    /// Mots qui s'écrivent pareil sans les accents (ecole -> école).
+    pub fn same_letters(&self, word: &str) -> Vec<&Entry> {
+        let f = fold(word);
+        range(&self.by_ortho, &f)
+            .iter()
+            .filter(|(k, _)| *k == f)
+            .map(|(_, i)| &self.entries[*i as usize])
+            .collect()
+    }
+
+    pub fn lemma_name(&self, id: u32) -> &str {
+        &self.lemmas[id as usize]
+    }
+
+    pub fn conj(&self, lemma: u32, form: Form) -> Option<&str> {
+        self.conj.get(&(lemma, form)).map(|i| self.entries[*i as usize].word.as_str())
+    }
+
+    fn adjust(e: &Entry, hint: &Hint) -> f32 {
+        let mut s = 0.0;
+        let verb_first = matches!(e.top_tag(), "VER" | "AUX");
+        if let Some(p) = hint.person {
+            // juste après « ils » : un verbe conjugué à la bonne personne, pas un infinitif
+            if e.has_person(p) {
+                s += 2.0;
+            } else if !e.verbs.is_empty() && !hint.participle && !hint.infinitive {
+                s -= 4.0;
+            }
+        }
+        if hint.participle {
+            if e.is_participle() {
+                s += 2.0;
+            } else if verb_first {
+                s -= 3.0;
+            }
+        }
+        if hint.infinitive {
+            if e.is_infinitive() {
+                s += 2.0;
+            } else if verb_first && (e.is_participle() || e.is_finite()) {
+                s -= 3.0;
+            }
+        }
+        if let Some(n) = hint.number {
+            if matches!(e.top_tag(), "NOM" | "ADJ") && e.gn != 0 {
+                s += if e.gn & n != 0 { 0.8 } else { -1.5 };
+            }
+        }
+        s
+    }
+
+    pub fn suggest(&self, typed: &str, hint: &Hint, max: usize) -> Vec<Suggestion> {
         let folded = fold(typed);
         if folded.is_empty() {
             return Vec::new();
         }
         let mut score: HashMap<u32, f32> = HashMap::new();
-        fn add(score: &mut HashMap<u32, f32>, idx: u32, s: f32) {
-            let e = score.entry(idx).or_insert(f32::MIN);
-            if s > *e {
-                *e = s;
-            }
-        }
 
         // 1. début de mot (accents ignorés) ; le mot exact tapé passe en tête
         for (k, idx) in range(&self.by_ortho, &folded) {
@@ -231,31 +429,39 @@ impl Lexicon {
             }
         }
 
-        let mut ranked: Vec<(u32, f32)> = score.into_iter().collect();
+        // 4. la grammaire de la phrase départage
+        let mut ranked: Vec<(u32, f32)> = score
+            .into_iter()
+            .map(|(i, s)| (i, s + Self::adjust(&self.entries[i as usize], hint)))
+            .collect();
         ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         ranked
             .into_iter()
             .take(max)
             .map(|(idx, _)| {
                 let e = &self.entries[idx as usize];
-                Suggestion { word: e.word.clone(), tag: e.tag, info: e.info.clone() }
+                Suggestion { word: e.word.clone(), tag: e.label, info: e.info.clone() }
             })
             .collect()
     }
 }
 
+fn entries_weight(entries: &[Entry], i: u32) -> f32 {
+    entries[i as usize].weight
+}
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use std::sync::OnceLock;
 
-    fn lex() -> &'static Lexicon {
+    pub fn lex() -> &'static Lexicon {
         static L: OnceLock<Lexicon> = OnceLock::new();
         L.get_or_init(|| Lexicon::load(include_str!("../data/lexique.tsv")))
     }
 
     fn words(t: &str) -> Vec<String> {
-        lex().suggest(t, 6).into_iter().map(|s| s.word).collect()
+        lex().suggest(t, &Hint::default(), 6).into_iter().map(|s| s.word).collect()
     }
 
     #[test]
@@ -296,7 +502,7 @@ mod tests {
         // rapidité : une frappe doit rester bien sous les 10 ms
         let t = std::time::Instant::now();
         for w in ["a", "le", "mai", "ospi", "ospital", "mangeaient", "anticonstitutionnel"] {
-            lex().suggest(w, 6);
+            lex().suggest(w, &Hint::default(), 6);
         }
         let per = t.elapsed() / 7;
         println!("temps moyen par frappe : {per:?}");
@@ -305,8 +511,21 @@ mod tests {
 
     #[test]
     fn infos_verbes() {
-        let s = lex().suggest("mangeaient", 1);
+        let s = lex().suggest("mangeaient", &Hint::default(), 1);
         assert_eq!(s[0].info, "manger · imparfait (ils)");
-        assert_eq!(lex().suggest("à", 1)[0].tag, "prép.");
+        assert_eq!(lex().suggest("à", &Hint::default(), 1)[0].tag, "prép.");
+        let manger = lex().lookup("manger").unwrap().lemma().unwrap();
+        assert_eq!(lex().conj(manger, Form { mode: IND, tense: PRE, person: 6 }), Some("mangent"));
+    }
+
+    #[test]
+    fn propositions_selon_la_phrase() {
+        let first = |t: &str, h: Hint| lex().suggest(t, &h, 6)[0].word.clone();
+        assert_eq!(first("mang", Hint { person: Some(6), ..Default::default() }), "mangent");
+        assert_eq!(first("mang", Hint { person: Some(4), ..Default::default() }), "mangeons");
+        assert_eq!(first("mang", Hint { participle: true, ..Default::default() }), "mangé");
+        assert_eq!(first("mang", Hint { infinitive: true, ..Default::default() }), "manger");
+        assert_eq!(first("cheva", Hint { number: Some(PLUR), ..Default::default() }), "chevaux");
+        assert_eq!(first("cheva", Hint { number: Some(SING), ..Default::default() }), "cheval");
     }
 }
