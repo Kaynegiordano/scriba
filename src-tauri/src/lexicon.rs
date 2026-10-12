@@ -244,6 +244,40 @@ fn levenshtein1(a: &[u8], b: &[u8]) -> bool {
     }
 }
 
+/// Les deux mots diffèrent d'une seule faute de frappe : lettre en trop, oubliée,
+/// remplacée ou deux lettres inversées (bonojur / bonjour, emfant / enfant).
+fn one_typo(a: &[u8], b: &[u8]) -> bool {
+    let (la, lb) = (a.len(), b.len());
+    if a == b || la.abs_diff(lb) > 1 {
+        return false;
+    }
+    let mut i = 0;
+    while i < la.min(lb) && a[i] == b[i] {
+        i += 1;
+    }
+    if la == lb {
+        a[i + 1..] == b[i + 1..] || (i + 1 < la && a[i] == b[i + 1] && a[i + 1] == b[i] && a[i + 2..] == b[i + 2..])
+    } else if la < lb {
+        a[i..] == b[i + 1..]
+    } else {
+        a[i + 1..] == b[i..]
+    }
+}
+
+fn edit_distance(a: &[u8], b: &[u8]) -> usize {
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != cb)).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
+}
+
 fn add(score: &mut HashMap<u32, f32>, idx: u32, s: f32) {
     let e = score.entry(idx).or_insert(f32::MIN);
     if s > *e {
@@ -253,6 +287,11 @@ fn add(score: &mut HashMap<u32, f32>, idx: u32, s: f32) {
 
 impl Lexicon {
     pub fn load(data: &str) -> Self {
+        Self::load_with(data, "")
+    }
+
+    /// `extra` : mots récents absents de Lexique (un par ligne, `#` = commentaire).
+    pub fn load_with(data: &str, extra: &str) -> Self {
         let mut entries = Vec::with_capacity(130_000);
         let mut by_ortho = Vec::with_capacity(130_000);
         let mut by_phon = Vec::with_capacity(140_000);
@@ -317,6 +356,34 @@ impl Lexicon {
             }
         }
         by_ortho.sort_unstable();
+        // mots récents : on ignore ceux que Lexique connaît déjà
+        let mut extra_added = false;
+        for line in extra.lines() {
+            let w = line.trim().to_lowercase();
+            if w.is_empty() || w.starts_with('#') {
+                continue;
+            }
+            let known = range(&by_ortho, &fold(&w)).iter().any(|(_, i)| entries[*i as usize].word == w);
+            if known {
+                continue;
+            }
+            let idx = entries.len() as u32;
+            entries.push(Entry {
+                word: w.clone(),
+                weight: 5.0f32.ln_1p(),
+                tags: "NOM".into(),
+                gn: SING | PLUR,
+                verbs: Vec::new(),
+                label: "nom",
+                info: String::new(),
+            });
+            by_ortho.push((fold(&w), idx));
+            by_phon.push((key(&phonemes(&w, true)), idx));
+            extra_added = true;
+        }
+        if extra_added {
+            by_ortho.sort_unstable();
+        }
         by_phon.sort_unstable();
         Lexicon { entries, by_ortho, by_phon, lemmas, conj }
     }
@@ -381,6 +448,55 @@ impl Lexicon {
         s
     }
 
+    /// Le mot que l'élève voulait écrire, quand on peut en être presque certain :
+    /// un seul candidat, ou un candidat bien plus courant que les autres.
+    /// Candidats : mêmes sons (mezon), ou une seule faute de lettre (bonojur).
+    pub fn confident(&self, typed: &str) -> Option<String> {
+        let folded = fold(typed);
+        let letters = folded.chars().count();
+        if letters < 3 {
+            return None;
+        }
+        let mut cands: HashMap<u32, f32> = HashMap::new();
+        let mut keys = vec![key(&phonemes(typed, true)), key(&phonemes(typed, false))];
+        keys.dedup();
+        for k in &keys {
+            for (pk, idx) in range(&self.by_phon, k) {
+                if pk == k {
+                    cands.insert(*idx, self.entries[*idx as usize].weight);
+                }
+            }
+        }
+        if letters >= 5 {
+            let q = folded.as_bytes();
+            for (k, idx) in &self.by_ortho {
+                if one_typo(k.as_bytes(), q) {
+                    cands.insert(*idx, self.entries[*idx as usize].weight);
+                }
+            }
+        }
+        let mut ranked: Vec<(u32, f32)> = cands.into_iter().collect();
+        ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        let best = ranked.first()?;
+        // un pluriel ou un féminin du même mot (maison / maisons) n'est pas un vrai concurrent
+        let best_folded = fold(&self.entries[best.0 as usize].word);
+        let rival = ranked
+            .iter()
+            .skip(1)
+            .find(|(i, _)| !one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()));
+        if rival.is_some_and(|r| best.1 - r.1 < 2.0) {
+            return None;
+        }
+        // dans la même famille (enfant / enfants), le plus proche de ce qui a été tapé
+        let closest = ranked
+            .iter()
+            .filter(|(i, _)| {
+                *i == best.0 || one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes())
+            })
+            .min_by_key(|(i, _)| edit_distance(fold(&self.entries[*i as usize].word).as_bytes(), folded.as_bytes()))?;
+        Some(self.entries[closest.0 as usize].word.clone())
+    }
+
     pub fn suggest(&self, typed: &str, hint: &Hint, max: usize) -> Vec<Suggestion> {
         let folded = fold(typed);
         if folded.is_empty() {
@@ -429,6 +545,16 @@ impl Lexicon {
             }
         }
 
+        // 3 bis. une lettre de travers, quand on n'a presque rien trouvé
+        if letters >= 4 && score.len() < max * 2 {
+            let q = folded.as_bytes();
+            for (k, idx) in &self.by_ortho {
+                if one_typo(k.as_bytes(), q) {
+                    add(&mut score, *idx, self.entries[*idx as usize].weight - 1.0);
+                }
+            }
+        }
+
         // 4. la grammaire de la phrase départage
         let mut ranked: Vec<(u32, f32)> = score
             .into_iter()
@@ -457,7 +583,7 @@ pub mod tests {
 
     pub fn lex() -> &'static Lexicon {
         static L: OnceLock<Lexicon> = OnceLock::new();
-        L.get_or_init(|| Lexicon::load(include_str!("../data/lexique.tsv")))
+        L.get_or_init(|| Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt")))
     }
 
     fn words(t: &str) -> Vec<String> {

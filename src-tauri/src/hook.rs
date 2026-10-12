@@ -1,7 +1,7 @@
 //! Écoute globale du clavier et de la souris (hooks bas niveau Windows) pour
 //! suivre la phrase en cours de frappe dans n'importe quelle application.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
@@ -12,6 +12,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 /// Marque nos propres frappes simulées pour que le hook les ignore.
 pub const MAGIC: usize = 0x5C21_BA00;
+/// Marque les frappes de l'élève que Scriba rejoue après une correction.
+const REPLAY: usize = 0x5C21_BA01;
 /// Au-delà, on oublie le début de la phrase.
 const MAX_CHARS: usize = 240;
 
@@ -24,6 +26,32 @@ pub enum Msg {
     /// ponctuation tapée juste après une espace ajoutée par Scriba : « maison , » -> « maison, »
     Punct(char),
     Toggle,
+    /// ouvrir la conjugaison (Ctrl+Alt+C)
+    Conj,
+    /// correction automatique du mot qui vient de se terminer
+    Auto(AutoFix),
+    /// l'élève annule la dernière correction automatique (Retour arrière)
+    Undo(AutoFix),
+    /// « ce mot est correct » (F8)
+    Learn,
+}
+
+#[derive(Clone)]
+pub struct AutoFix {
+    pub original: String,
+    pub replacement: String,
+    /// la ponctuation ou l'espace qui a terminé le mot
+    pub term: char,
+    pub kind: &'static str,
+    pub reason: String,
+}
+
+/// Une touche tapée pendant une correction, rejouée juste après.
+#[derive(Clone, Copy)]
+struct Ev {
+    vk: u16,
+    flags: u32,
+    up: bool,
 }
 
 struct State {
@@ -33,16 +61,38 @@ struct State {
     last_fg: isize,
     /// fenêtre où Scriba se tait (jeu en plein écran…)
     paused: bool,
+    /// application d'écriture : la seule où la correction automatique agit
+    writing: bool,
+    /// dernière correction automatique, annulable par Retour arrière
+    last_auto: Option<AutoFix>,
 }
 
-static STATE: Mutex<State> =
-    Mutex::new(State { sentence: Vec::new(), dead: None, caps: false, last_fg: 0, paused: false });
+static STATE: Mutex<State> = Mutex::new(State {
+    sentence: Vec::new(),
+    dead: None,
+    caps: false,
+    last_fg: 0,
+    paused: false,
+    writing: false,
+    last_auto: None,
+});
+
+/// Une correction est en cours : les frappes de l'élève attendent (file ci-dessous).
+static BUSY: AtomicBool = AtomicBool::new(false);
+/// Une correction attend d'être faite : même les frappes rejouées attendent.
+static HOLD: AtomicBool = AtomicBool::new(false);
+static BUSY_SINCE: AtomicU64 = AtomicU64::new(0);
+static QUEUE: Mutex<Vec<Ev>> = Mutex::new(Vec::new());
+static REPLAY_SEEN: AtomicU64 = AtomicU64::new(0);
+/// Le mot signalé est inconnu : F8 peut l'ajouter au dictionnaire.
+pub static LEARNABLE: AtomicBool = AtomicBool::new(false);
 
 /// Applications d'écriture : jamais mises en veille, même en plein écran.
 const WRITING_APPS: &[&str] = &[
     "winword.exe", "notepad.exe", "wordpad.exe", "msedge.exe", "chrome.exe", "brave.exe", "firefox.exe",
     "opera.exe", "powerpnt.exe", "excel.exe", "onenote.exe", "outlook.exe", "olk.exe", "soffice.bin",
-    "swriter.exe", "teams.exe", "ms-teams.exe",
+    "swriter.exe", "soffice.exe", "teams.exe", "ms-teams.exe", "discord.exe", "whatsapp.exe", "telegram.exe",
+    "slack.exe", "thunderbird.exe",
 ];
 
 fn exe_name(hwnd: HWND) -> String {
@@ -102,6 +152,110 @@ fn send(m: Msg) {
     if let Some(tx) = TX.get() {
         let _ = tx.send(m);
     }
+}
+
+fn now_ms() -> u64 {
+    unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() }
+}
+
+fn is_terminator(c: char) -> bool {
+    matches!(c, ' ' | '\u{a0}' | ',' | '.' | ';' | ':' | '!' | '?' | ')' | '»')
+}
+
+/// Champ de mot de passe classique (les navigateurs ne se laissent pas interroger : on s'appuie
+/// sur le fait que Scriba ne corrige jamais un mot collé à autre chose).
+fn focus_is_password(fg: isize) -> bool {
+    unsafe {
+        let tid = GetWindowThreadProcessId(fg as HWND, std::ptr::null_mut());
+        let mut gi: GUITHREADINFO = std::mem::zeroed();
+        gi.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+        if GetGUIThreadInfo(tid, &mut gi) == 0 || gi.hwndFocus.is_null() {
+            return false;
+        }
+        let mut class = [0u16; 16];
+        let n = GetClassNameW(gi.hwndFocus, class.as_mut_ptr(), 16) as usize;
+        String::from_utf16_lossy(&class[..n]).eq_ignore_ascii_case("edit")
+            && (GetWindowLongW(gi.hwndFocus, GWL_STYLE) as u32) & 0x20 != 0 // ES_PASSWORD
+    }
+}
+
+/// La correction sûre du mot qui se termine, s'il y en a une.
+fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
+    let mode = crate::custom::mode();
+    if mode == crate::custom::OFF {
+        return None;
+    }
+    let lex = crate::try_lex()?;
+    // adresse, nom de fichier, champ de recherche d'un mot : il faut une vraie phrase
+    if !matches!(term, ' ' | '\u{a0}') && !st.sentence.contains(&' ') {
+        return None;
+    }
+    if focus_is_password(fg) {
+        return None;
+    }
+    let c = crate::grammar::auto_fix(lex, &st.sentence, term, mode)?;
+    Some(AutoFix { original: c.original, replacement: c.replacement, term, kind: c.kind, reason: c.reason })
+}
+
+fn begin_hold() {
+    BUSY_SINCE.store(now_ms(), Ordering::SeqCst);
+    BUSY.store(true, Ordering::SeqCst);
+    HOLD.store(true, Ordering::SeqCst);
+}
+
+/// Fin d'une correction : on rejoue, dans l'ordre, les touches tapées entre-temps.
+pub fn finish_hold() {
+    HOLD.store(false, Ordering::SeqCst);
+    drain();
+}
+
+fn drain() {
+    loop {
+        let mut batch = std::mem::take(&mut *QUEUE.lock().unwrap());
+        if batch.is_empty() {
+            BUSY.store(false, Ordering::SeqCst);
+            // une frappe a pu arriver entre-temps
+            if QUEUE.lock().unwrap().is_empty() {
+                return;
+            }
+            BUSY.store(true, Ordering::SeqCst);
+            continue;
+        }
+        let mut done = 0;
+        for ev in &batch {
+            if HOLD.load(Ordering::SeqCst) {
+                break; // une nouvelle correction a démarré : le reste attend son tour
+            }
+            replay_one(ev);
+            done += 1;
+        }
+        if done < batch.len() {
+            let rest: Vec<Ev> = batch.drain(done..).collect();
+            QUEUE.lock().unwrap().splice(0..0, rest);
+            return;
+        }
+    }
+}
+
+fn replay_one(ev: &Ev) {
+    let flags = (if ev.up { KEYEVENTF_KEYUP } else { 0 }) | (if ev.flags & 1 != 0 { KEYEVENTF_EXTENDEDKEY } else { 0 });
+    let input = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: ev.vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: REPLAY } },
+    };
+    let target = REPLAY_SEEN.load(Ordering::SeqCst) + 1;
+    unsafe {
+        SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
+    }
+    // on attend que le hook l'ait vue : elle peut déclencher une nouvelle correction
+    let start = now_ms();
+    while REPLAY_SEEN.load(Ordering::SeqCst) < target && now_ms() < start + 40 {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+pub fn set_last_auto(a: Option<AutoFix>) {
+    STATE.lock().unwrap().last_auto = a;
 }
 
 fn publish(st: &State) {
@@ -169,13 +323,39 @@ unsafe extern "system" fn keyboard_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LR
         let k = &*(lp as *const KBDLLHOOKSTRUCT);
         if k.dwExtraInfo != MAGIC {
             let msg = wp as u32;
-            if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
-                if on_key_down(k) {
-                    SWALLOW_UP.store(k.vkCode, Ordering::Relaxed);
-                    return 1;
+            let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+            let replayed = k.dwExtraInfo == REPLAY;
+
+            // Une correction est en cours : la frappe attend son tour, rien n'est perdu.
+            let waiting = if replayed { HOLD.load(Ordering::SeqCst) } else { BUSY.load(Ordering::SeqCst) };
+            if waiting {
+                QUEUE.lock().unwrap().push(Ev { vk: k.vkCode as u16, flags: k.flags, up });
+                if replayed {
+                    REPLAY_SEEN.fetch_add(1, Ordering::SeqCst);
+                } else if now_ms() > BUSY_SINCE.load(Ordering::SeqCst) + 1500 {
+                    // sécurité : le clavier ne reste jamais bloqué
+                    HOLD.store(false, Ordering::SeqCst);
+                    std::thread::spawn(drain);
                 }
-            } else if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && SWALLOW_UP.load(Ordering::Relaxed) == k.vkCode {
+                return 1;
+            }
+
+            let swallow = if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
+                let s = on_key_down(k);
+                if s {
+                    SWALLOW_UP.store(k.vkCode, Ordering::Relaxed);
+                }
+                s
+            } else if up && SWALLOW_UP.load(Ordering::Relaxed) == k.vkCode {
                 SWALLOW_UP.store(0, Ordering::Relaxed);
+                true
+            } else {
+                false
+            };
+            if replayed {
+                REPLAY_SEEN.fetch_add(1, Ordering::SeqCst);
+            }
+            if swallow {
                 return 1;
             }
         }
@@ -190,15 +370,24 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     let alt = pressed(VK_MENU);
     let shift = pressed(VK_SHIFT);
 
-    // Ctrl + Alt gauche + L : afficher / masquer (AltGr exclu)
-    if vk == b'L' as u16 && ctrl && pressed(VK_LMENU) && !pressed(VK_RMENU) {
+    // Ctrl + Alt gauche + L : afficher / masquer ; + C : conjugaison (AltGr exclu)
+    let left_alt_combo = ctrl && pressed(VK_LMENU) && !pressed(VK_RMENU);
+    if left_alt_combo && vk == b'L' as u16 {
         send(Msg::Toggle);
+        crate::inject::mask_alt();
+        return true;
+    }
+    if left_alt_combo && vk == b'C' as u16 {
+        send(Msg::Conj);
+        crate::inject::mask_alt();
         return true;
     }
 
+    // Fenêtres de Scriba (barre, conjugaison) : on n'y suit pas la frappe
     let fg = GetForegroundWindow() as isize;
-    let own = OWN_HWND.load(Ordering::Relaxed);
-    if own != 0 && fg == own {
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(fg as HWND, &mut pid);
+    if pid == std::process::id() {
         return false;
     }
 
@@ -210,6 +399,8 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     if fg != st.last_fg {
         st.last_fg = fg;
         st.paused = looks_like_game(fg as HWND);
+        st.writing = WRITING_APPS.contains(&exe_name(fg as HWND).as_str());
+        st.last_auto = None;
         clear(&mut st);
         publish(&st);
     }
@@ -229,11 +420,23 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         send(Msg::Fix);
         return true;
     }
+    // F8 : ce mot est correct, on l'ajoute au dictionnaire
+    if vk == VK_F8 && visible && no_mods && LEARNABLE.load(Ordering::Relaxed) {
+        send(Msg::Learn);
+        return true;
+    }
 
     match vk {
         VK_SHIFT | VK_LSHIFT | VK_RSHIFT | VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_MENU | VK_LMENU
         | VK_RMENU | VK_LWIN | VK_RWIN => return false,
         VK_BACK => {
+            if no_mods {
+                if let Some(a) = st.last_auto.take() {
+                    begin_hold();
+                    send(Msg::Undo(a));
+                    return true;
+                }
+            }
             if ctrl {
                 clear(&mut st);
             } else {
@@ -247,6 +450,7 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         _ => {}
     }
     let auto_space = AUTO_SPACE.swap(false, Ordering::Relaxed);
+    st.last_auto = None;
 
     // Raccourcis (Ctrl+…, Alt+…) : on perd le fil de la phrase
     if ctrl != alt {
@@ -288,6 +492,15 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     };
 
     let dead = st.dead.take();
+    if let Some(c) = ch {
+        if is_terminator(c) && st.writing && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
+            if let Some(fix) = auto_candidate(&st, fg, c) {
+                begin_hold();
+                send(Msg::Auto(fix));
+                return true; // l'espace (ou la ponctuation) est retapée avec le mot corrigé
+            }
+        }
+    }
     match ch {
         Some(c) if c.is_alphabetic() => {
             st.sentence.push(dead.and_then(|d| compose(d, c)).unwrap_or(c));
@@ -327,6 +540,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESU
             if !on_bar {
                 // un clic déplace le curseur : la phrase suivie n'est plus fiable
                 let mut st = STATE.lock().unwrap();
+                st.last_auto = None;
                 AUTO_SPACE.store(false, Ordering::Relaxed);
                 if !st.sentence.is_empty() {
                     clear(&mut st);

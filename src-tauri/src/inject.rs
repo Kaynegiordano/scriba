@@ -16,6 +16,13 @@ fn key(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 
 const GAP_MS: u64 = 8;
 
+/// Après un raccourci Ctrl+Alt+… avalé par Scriba : une touche neutre pour que
+/// le relâchement d'Alt n'ouvre pas le menu de l'application.
+pub fn mask_alt() {
+    const VK_NEUTRAL: VIRTUAL_KEY = 0xE8; // code non attribué
+    send(&[key(VK_NEUTRAL, 0, 0), key(VK_NEUTRAL, 0, KEYEVENTF_KEYUP)]);
+}
+
 fn send(inputs: &[INPUT]) {
     unsafe {
         SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
@@ -28,11 +35,27 @@ fn press(vk: VIRTUAL_KEY, _hkl: HKL) -> [INPUT; 2] {
     [key(vk, 0, 0), key(vk, 0, KEYEVENTF_KEYUP)]
 }
 
+/// Maj / Ctrl / Alt encore enfoncés (le point se tape avec Maj sur AZERTY) fausseraient
+/// ce qu'on tape : on les relâche virtuellement. Le vrai relâchement, mis en attente
+/// par le hook, est rejoué ensuite sans dommage.
+fn release_modifiers() {
+    let held: Vec<INPUT> = [VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU]
+        .into_iter()
+        .filter(|vk| unsafe { (GetAsyncKeyState(*vk as i32) as u16) & 0x8000 != 0 })
+        .map(|vk| key(vk, 0, KEYEVENTF_KEYUP))
+        .collect();
+    if !held.is_empty() {
+        send(&held);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// Efface `erase` caractères puis tape `text`.
 /// Les lettres présentes sur le clavier sont tapées comme de vraies touches
 /// (les applis récentes, Bloc-notes ou Word, mélangent parfois les caractères
 /// Unicode simulés) ; le reste (ê, ï…) passe en Unicode.
 pub fn replace(erase: usize, text: &str) {
+    release_modifiers();
     let (hkl, caps) = unsafe {
         let tid = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
         (GetKeyboardLayout(tid), GetKeyState(VK_CAPITAL as i32) & 1 != 0)

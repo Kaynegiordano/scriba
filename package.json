@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "tauri": "tauri",
-    "index": "node tools/build-index.mjs data/raw/lexique/Lexique383.tsv src-tauri/data/lexique.tsv"
+    "index": "node tools/build-index.mjs data/raw/lexique/Lexique383.tsv src-tauri/data/lexique.tsv",
+    "conj": "node tools/build-conj.mjs data/raw/verbiste/verbiste-0.1.49/data src-tauri/data/conj.tsv"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

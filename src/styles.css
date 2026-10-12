@@ -8,6 +8,8 @@
   --accent: #7c8cff;
   --verb: #c79bff;
   --warn: #ffb35c;
+  --ok: #5fd39a;
+  --ok-bg: rgba(95, 211, 154, 0.1);
   --warn-bg: rgba(255, 179, 92, 0.1);
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
@@ -24,6 +26,8 @@
     --accent: #4f5fe8;
     --verb: #8a4fd8;
     --warn: #c46a00;
+    --ok: #168a5a;
+    --ok-bg: rgba(22, 138, 90, 0.09);
     --warn-bg: rgba(230, 130, 20, 0.09);
   }
 }
@@ -195,6 +199,80 @@ body,
 
 .fix:hover {
   filter: brightness(1.12);
+}
+
+.tool {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: var(--chip);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.tool:hover {
+  background: var(--chip-hover);
+  color: var(--accent);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 5px 12px 5px 8px;
+  border: 1.5px solid var(--ok);
+  border-radius: 10px;
+  background: var(--ok-bg);
+  animation: pop 0.18s ease-out both;
+}
+
+.notice .mark {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.notice .meta {
+  color: var(--ok);
+}
+
+.notice.undone {
+  border-color: var(--border);
+  background: var(--chip);
+}
+
+.notice.undone .mark,
+.notice.undone .meta {
+  color: var(--muted);
+}
+
+.notice s {
+  opacity: 0.55;
+}
+
+.learn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.learn:hover {
+  background: var(--chip-hover);
+  color: var(--text);
 }
 
 .hide {

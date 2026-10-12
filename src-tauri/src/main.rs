@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(test)]
+mod auto_tests;
+mod conj;
+mod custom;
 mod grammar;
 mod hook;
 mod inject;
@@ -10,13 +14,32 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
+use std::sync::OnceLock;
+
+use conj::{Conjugator, Table};
 use grammar::Correction;
 use hook::Msg;
-use lexicon::{Lexicon, Suggestion};
+use lexicon::{Hint, Lexicon, Suggestion};
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+
+static LEX: OnceLock<Lexicon> = OnceLock::new();
+static CONJ: OnceLock<Conjugator> = OnceLock::new();
+
+/// Le dictionnaire s'il est déjà chargé (le clavier ne doit jamais attendre son chargement).
+pub fn try_lex() -> Option<&'static Lexicon> {
+    LEX.get()
+}
+
+fn lex() -> &'static Lexicon {
+    LEX.get_or_init(|| Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt")))
+}
+
+fn conjugator() -> &'static Conjugator {
+    CONJ.get_or_init(|| Conjugator::load(include_str!("../data/conj.tsv")))
+}
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -33,6 +56,17 @@ struct Fix {
     to: String,
     reason: String,
     kind: &'static str,
+    /// mot inconnu : F8 peut l'ajouter au dictionnaire
+    learnable: bool,
+}
+
+/// Une correction automatique vient d'être faite (ou annulée).
+#[derive(Clone, Serialize)]
+struct Notice {
+    from: String,
+    to: String,
+    reason: String,
+    undone: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -53,8 +87,102 @@ fn apply_fix(tx: State<Tx>) {
 }
 
 #[tauri::command]
+fn learn(tx: State<Tx>) {
+    let _ = tx.0.send(Msg::Learn);
+}
+
+#[tauri::command]
 fn toggle(tx: State<Tx>) {
     let _ = tx.0.send(Msg::Toggle);
+}
+
+#[tauri::command]
+fn open_conj(tx: State<Tx>) {
+    let _ = tx.0.send(Msg::Conj);
+}
+
+#[tauri::command]
+fn conj_table(verb: String) -> Option<Table> {
+    conjugator().conjugate(verb.trim())
+}
+
+#[derive(Serialize)]
+struct Choice {
+    verb: String,
+    /// « forme de manger », vide si l'élève a tapé l'infinitif
+    hint: String,
+}
+
+/// Ce que l'élève cherche : un infinitif, une forme conjuguée (« mangeaient »),
+/// ou un mot mal écrit (« manjé »).
+#[tauri::command]
+fn conj_search(query: String) -> Vec<Choice> {
+    let q = query.trim().to_lowercase();
+    let (lex, conj) = (lex(), conjugator());
+    let mut out: Vec<Choice> = Vec::new();
+    let mut push = |verb: &str, hint: String| {
+        if conj.knows(verb) && !out.iter().any(|c| c.verb == verb) && out.len() < 8 {
+            out.push(Choice { verb: verb.to_string(), hint });
+        }
+    };
+    if q.is_empty() {
+        return out;
+    }
+    push(&q, String::new());
+    if let Some(e) = lex.lookup(&q) {
+        for (l, _) in &e.verbs {
+            push(lex.lemma_name(*l), format!("« {q} » vient de ce verbe"));
+        }
+    }
+    for v in conj.search(&q, 8) {
+        push(&v, String::new());
+    }
+    let hint = Hint { infinitive: true, ..Default::default() };
+    for s in lex.suggest(&q, &hint, 12) {
+        push(&s.word.to_lowercase(), String::new());
+        if let Some(e) = lex.lookup(&s.word) {
+            for (l, _) in &e.verbs {
+                push(lex.lemma_name(*l), String::new());
+            }
+        }
+    }
+    out
+}
+
+/// Le dernier verbe de la phrase en cours (pour ouvrir la conjugaison dessus).
+fn last_verb(sentence: &[char]) -> String {
+    let (lex, conj) = (lex(), conjugator());
+    for t in grammar::tokenize(lex, sentence).iter().rev() {
+        if let Some(e) = lex.lookup(&t.lower) {
+            if matches!(e.top_tag(), "VER" | "AUX") {
+                if let Some(l) = e.verbs.iter().map(|(l, _)| lex.lemma_name(*l)).find(|l| conj.knows(l)) {
+                    return l.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+fn show_conj(app: &AppHandle, verb: &str) {
+    if let Some(w) = app.get_webview_window("conj") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        if !verb.is_empty() {
+            let _ = w.emit_to("conj", "conj-open", verb.to_string());
+        }
+        return;
+    }
+    let url = format!("index.html#conj={}", verb.replace(' ', "%20"));
+    let _ = WebviewWindowBuilder::new(app, "conj", WebviewUrl::App(url.into()))
+        .title("Scriba — Conjugaison")
+        .inner_size(900.0, 700.0)
+        .min_inner_size(560.0, 420.0)
+        .decorations(false)
+        .center()
+        .focused(true)
+        .build();
 }
 
 /// Respecte la casse tapée : « Mezon » -> « Maison », « MEZON » -> « MAISON ».
@@ -101,7 +229,8 @@ fn retype(erase: usize, text: &str, auto_space: bool) {
 }
 
 fn worker(app: AppHandle, rx: Receiver<Msg>) {
-    let lex = Lexicon::load(include_str!("../data/lexique.tsv"));
+    let lex = lex();
+    conjugator();
     let mut sentence: Vec<char> = Vec::new();
     let mut typed = String::new();
     let mut items: Vec<Suggestion> = Vec::new();
@@ -111,10 +240,10 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
         let word_len = sentence.iter().rev().take_while(|c| c.is_alphabetic()).count();
         *typed = sentence[sentence.len() - word_len..].iter().collect();
 
-        let toks = grammar::tokenize(&lex, sentence);
+        let toks = grammar::tokenize(lex, sentence);
         // le mot en cours est le dernier jeton s'il touche la fin de la phrase
         let cur = toks.len().saturating_sub(if word_len > 0 { 1 } else { 0 });
-        *fix = grammar::check(&lex, sentence)
+        *fix = grammar::check(lex, sentence)
             .into_iter()
             .rev()
             .find(|c| sentence.len() - c.start <= MAX_FIX_DISTANCE);
@@ -122,18 +251,21 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
         *items = if typed.is_empty() {
             Vec::new()
         } else {
-            let h = grammar::hint(&lex, &toks, cur.min(toks.len().saturating_sub(1)));
+            let h = grammar::hint(lex, &toks, cur.min(toks.len().saturating_sub(1)));
             lex.suggest(typed, &h, max)
         };
         for s in items.iter_mut() {
             s.word = match_case(typed, &s.word);
         }
         hook::CORRECTION.store(fix.is_some(), Ordering::Relaxed);
+        let learnable = fix.as_ref().is_some_and(|c| c.reason.starts_with("Mot inconnu"));
+        hook::LEARNABLE.store(learnable, Ordering::Relaxed);
         let view = fix.as_ref().map(|c| Fix {
             from: c.original.clone(),
             to: c.replacement.clone(),
             reason: c.reason.clone(),
             kind: c.kind,
+            learnable,
         });
         let _ = app.emit("suggestions", Payload { typed: typed.clone(), items: items.clone(), fix: view });
     };
@@ -186,7 +318,56 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 sentence.push(p);
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
             }
+            Msg::Auto(a) => {
+                // le mot est à la fin de la phrase ; l'espace (ou la ponctuation) avalée est retapée avec lui
+                let erase = a.original.chars().count();
+                let text = format!("{}{}", a.replacement, a.term);
+                hook::set_tail(erase, &text, false);
+                inject::replace(erase, &text);
+                let keep = sentence.len().saturating_sub(erase);
+                sentence.truncate(keep);
+                sentence.extend(text.chars());
+                let _ = app.emit(
+                    "auto",
+                    Notice { from: a.original.clone(), to: a.replacement.clone(), reason: a.reason.clone(), undone: false },
+                );
+                hook::set_last_auto(Some(a));
+                refresh(&sentence, &mut typed, &mut items, &mut fix);
+                hook::finish_hold();
+            }
+            Msg::Undo(a) => {
+                // Retour arrière juste après une correction : on remet le mot de l'élève, et on s'en souvient
+                let erase = a.replacement.chars().count() + 1;
+                hook::set_tail(erase, &a.original, false);
+                inject::replace(erase, &a.original);
+                let keep = sentence.len().saturating_sub(erase);
+                sentence.truncate(keep);
+                sentence.extend(a.original.chars());
+                if a.kind == "orthographe" {
+                    custom::add_word(&a.original);
+                } else {
+                    custom::add_ignore(&a.original, &a.replacement);
+                }
+                let _ = app.emit(
+                    "auto",
+                    Notice {
+                        from: a.replacement.clone(),
+                        to: a.original.clone(),
+                        reason: "D'accord, je ne le corrigerai plus.".into(),
+                        undone: true,
+                    },
+                );
+                refresh(&sentence, &mut typed, &mut items, &mut fix);
+                hook::finish_hold();
+            }
+            Msg::Learn => {
+                if let Some(c) = fix.take() {
+                    custom::add_word(&c.original);
+                    refresh(&sentence, &mut typed, &mut items, &mut fix);
+                }
+            }
             Msg::Toggle => set_visible(!hook::VISIBLE.load(Ordering::Relaxed)),
+            Msg::Conj => show_conj(&app, &last_verb(&sentence)),
         }
     }
 }
@@ -201,13 +382,14 @@ fn main() {
         }
     }
 
+    custom::load();
     let (tx, rx) = channel::<Msg>();
     let hook_tx = tx.clone();
     let tray_tx = tx.clone();
 
     tauri::Builder::default()
         .manage(Tx(tx))
-        .invoke_handler(tauri::generate_handler![pick, apply_fix, toggle])
+        .invoke_handler(tauri::generate_handler![pick, apply_fix, learn, toggle, open_conj, conj_table, conj_search])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("fenêtre principale");
             let hwnd = win.hwnd()?.0 as isize;
@@ -228,8 +410,21 @@ fn main() {
             set_visible(true);
 
             let toggle_item = MenuItem::with_id(app, "toggle", "Afficher / masquer   Ctrl+Alt+L", true, None::<&str>)?;
+            let conj_item = MenuItem::with_id(app, "conj", "Conjugaison   Ctrl+Alt+C", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quitter Scriba", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_item, &quit_item])?;
+            let mode = custom::mode();
+            let auto_items = [
+                CheckMenuItem::with_id(app, "auto0", "Désactivée", true, mode == custom::OFF, None::<&str>)?,
+                CheckMenuItem::with_id(app, "auto1", "Orthographe seulement", true, mode == custom::SPELLING, None::<&str>)?,
+                CheckMenuItem::with_id(app, "auto2", "Orthographe + grammaire", true, mode == custom::FULL, None::<&str>)?,
+            ];
+            let auto_menu = Submenu::with_items(
+                app,
+                "Correction automatique",
+                true,
+                &[&auto_items[0], &auto_items[1], &auto_items[2]],
+            )?;
+            let menu = Menu::with_items(app, &[&toggle_item, &conj_item, &auto_menu, &quit_item])?;
             let menu_tx = tray_tx.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().expect("icône"))
@@ -239,6 +434,16 @@ fn main() {
                 .on_menu_event(move |app, e| match e.id.as_ref() {
                     "toggle" => {
                         let _ = menu_tx.send(Msg::Toggle);
+                    }
+                    "conj" => {
+                        let _ = menu_tx.send(Msg::Conj);
+                    }
+                    id @ ("auto0" | "auto1" | "auto2") => {
+                        let m = id.as_bytes()[4] - b'0';
+                        custom::set_mode(m);
+                        for (i, item) in auto_items.iter().enumerate() {
+                            let _ = item.set_checked(i as u8 == m);
+                        }
                     }
                     "quit" => app.exit(0),
                     _ => {}
