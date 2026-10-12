@@ -3,7 +3,7 @@
 //! Règles volontairement simples et expliquées comme en classe de 4e.
 
 use crate::custom;
-use crate::lexicon::{pronoun, Entry, Form, Hint, Lexicon, FP, FS, IND, MP, PLUR, PRE, SING};
+use crate::lexicon::{fold, pronoun, Entry, Form, Hint, Lexicon, FP, FS, IND, MP, PLUR, PRE, SING};
 
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -298,6 +298,68 @@ fn participle(lex: &Lexicon, lemma: &str, aux: &str, subject: &str) -> Option<St
     lex.lookup(&p).map(|_| p)
 }
 
+/// Mots qui ne se distinguent que par un accent : seul le sujet de la phrase permet de choisir.
+/// (mot écrit sans accent, [(mot juste, indices du sens, écrits sans accent)])
+type Cues = &'static [(&'static str, &'static [&'static str])];
+const CUES: &[(&str, Cues)] = &[
+    ("peche", &[
+        ("pêche", &["poisson", "poissons", "canne", "mer", "riviere", "lac", "filet", "bateau", "truite", "saumon", "peche", "pecheur", "pecher",
+                    "fruit", "fruits", "abricot", "nectarine", "tarte", "jus", "noyau", "peches", "dessert", "mange", "mangeons", "etang"]),
+        ("pèche", &["ca", "problème", "probleme", "defaut", "erreur", "faute", "souci", "faiblesse", "ou"]),
+        ("péché", &["eglise", "dieu", "confession", "pardon", "religion", "capital", "mignon", "mortel", "pretre", "cure", "diable", "enfer", "paradis", "ange", "bible"]),
+    ]),
+    ("tache", &[
+        ("tache", &["vetement", "vetements", "chemise", "pull", "encre", "nettoyer", "enlever", "laver", "sale", "rousseur", "rousseurs", "soleil", "peau", "cafe", "sauce", "pantalon", "robe", "nappe", "detachant", "tee-shirt", "tshirt"]),
+        ("tâche", &["devoir", "devoirs", "travail", "menagere", "menageres", "accomplir", "effectuer", "mission", "exercice", "projet", "difficile", "facile", "importante", "realiser", "terminer"]),
+    ]),
+    ("mur", &[
+        ("mur", &["peinture", "brique", "briques", "maison", "escalier", "beton", "fissure", "grimpe", "affiche", "poster", "peindre"]),
+        ("mûr", &["fruit", "fruits", "raisin", "tomate", "tomates", "banane", "cerise", "abricot", "melon", "pomme", "cueillir", "recolter", "arbre", "verger"]),
+    ]),
+    ("pate", &[
+        ("pâte", &["pizza", "gateau", "tarte", "crepe", "crepes", "modeler", "farine", "dentifrice", "amande", "tartiner", "petrir", "cuisine", "recette"]),
+        ("pâtes", &["spaghetti", "spaghettis", "cuire", "cuites", "nouilles", "diner", "dejeuner", "carbonara", "sauce", "bolognaise", "macaroni", "macaronis"]),
+        ("pâté", &["foie", "campagne", "terrine", "viande", "tartine", "charcuterie", "croute"]),
+    ]),
+    ("pates", &[
+        ("pâtes", &["spaghetti", "spaghettis", "cuire", "cuites", "nouilles", "diner", "dejeuner", "carbonara", "sauce", "bolognaise", "macaroni", "macaronis", "manger", "mange", "mangeons", "assiette", "fromage", "gratin", "tomate"]),
+        ("pâtés", &["foie", "campagne", "terrine", "viande", "tartine", "charcuterie", "croute", "maison"]),
+        ("pattes", &["chien", "chat", "animal", "animaux", "araignee", "poule", "oiseau", "griffes", "quatre", "arriere", "avant"]),
+    ]),
+    ("cote", &[
+        ("côte", &["mer", "plage", "bretonne", "rotie", "roti", "porc", "boeuf", "os", "brisee", "cassee", "falaise", "ocean", "littoral", "bord"]),
+        ("côté", &["a", "de", "du", "gauche", "droit", "droite", "autre", "cote", "dautre", "voisin", "coin", "pres"]),
+    ]),
+];
+
+/// Le mot juste d'après les indices de la phrase (avant et après le mot) ; rien si les indices ne tranchent pas.
+fn cue_choice(lex: &Lexicon, toks: &[Token], i: usize) -> Option<&'static str> {
+    let plain = fold(&toks[i].lower);
+    let (_, variants) = CUES.iter().find(|(p, _)| *p == plain)?;
+    // on ne touche qu'à un mot écrit sans accent : un mot déjà accentué est présumé voulu
+    if toks[i].lower != plain {
+        return None;
+    }
+    let words: Vec<String> = toks
+        .iter()
+        .enumerate()
+        .filter(|(j, t)| *j != i && t.sent == toks[i].sent)
+        .map(|(_, t)| fold(t.lower.trim_end_matches('\'')))
+        .collect();
+    let mut scored: Vec<(&'static str, usize)> =
+        variants.iter().map(|(v, cues)| (*v, words.iter().filter(|w| cues.contains(&w.as_str())).count())).collect();
+    scored.sort_by_key(|s| std::cmp::Reverse(s.1));
+    let (best, n) = scored[0];
+    if n == 0 || scored.get(1).is_some_and(|s| s.1 == n) {
+        return None;
+    }
+    // après « a », « est », « ont »… : le participe (« il a pêché un poisson »)
+    if best == "pêche" && aux_before(lex, toks, i).is_some() {
+        return Some("pêché");
+    }
+    Some(best)
+}
+
 /// Verbes suivis de la préposition « à » (« il est allé à l'école »).
 const TO_VERBS: &[&str] = &[
     "aller", "venir", "arriver", "rentrer", "retourner", "passer", "penser", "jouer", "parler", "habiter", "rester",
@@ -363,6 +425,26 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
     //    soient lus avec le bon contexte (« ca peche » -> « ça pèche », donc un verbe après « ça »)
     for i in 0..toks.len() {
         let lower = toks[i].lower.clone();
+        // le sens de la phrase tranche entre « pêche », « pèche », « péché » (ou « tache » / « tâche »…)
+        if let Some(word) = cue_choice(lex, &toks, i) {
+            if word != lower {
+                let t = &toks[i];
+                let replacement = match_case(&t.text, word);
+                if done(t) && !custom::ignored(&t.text, &replacement) {
+                    out.push(Correction {
+                        start: t.start,
+                        end: t.end,
+                        original: t.text.clone(),
+                        replacement,
+                        reason: format!("D'après le sens de la phrase : « {word} »."),
+                        kind: "orthographe",
+                        auto: true,
+                    });
+                }
+                toks[i].lower = word.to_string();
+                continue;
+            }
+        }
         if lex.lookup(&lower).is_some() || lower.ends_with('\'') || lower.chars().count() < 2 || custom::knows(&lower) {
             continue;
         }
@@ -458,6 +540,17 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 }) =>
             {
                 fix("à".into(), "Après ce verbe, c'est la préposition « à » (on ne peut pas dire « avait »).".into(), "homophone", true);
+                continue;
+            }
+            "sur" if {
+                let before = if i > 0 && toks[i - 1].sent == t.sent { toks[i - 1].lower.as_str() } else { "" };
+                let after = next.map(|n| n.lower.as_str());
+                (before == "bien" && after.is_none_or(|n| SUBJECTS_AFTER_WHERE.contains(&n) || n == "que" || n == "qu'"))
+                    || (matches!(before, "est" | "suis" | "es" | "sommes" | "êtes" | "sont" | "étais" | "était" | "pas")
+                        && after.is_some_and(|n| matches!(n, "de" | "d'" | "que" | "qu'")))
+            } =>
+            {
+                fix("sûr".into(), "« sûr » avec un accent circonflexe : on peut dire « certain ».".into(), "homophone", true);
                 continue;
             }
             "ou" if ou_is_where(lex, &toks, i) => {
