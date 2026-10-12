@@ -557,6 +557,38 @@ impl Lexicon {
     }
 
     pub fn suggest(&self, typed: &str, hint: &Hint, max: usize) -> Vec<Suggestion> {
+        self.rank(typed, hint, max)
+            .into_iter()
+            .take(max)
+            .map(|(idx, _)| {
+                let e = &self.entries[idx as usize];
+                Suggestion { word: e.word.clone(), tag: e.label, info: e.info.clone(), picto: None }
+            })
+            .collect()
+    }
+
+    /// La meilleure proposition pour un mot inconnu, si elle est nettement devant les autres :
+    /// assez sûre pour être appliquée sans demander.
+    pub fn guess(&self, typed: &str, hint: &Hint) -> Option<String> {
+        if fold(typed).chars().count() < 4 {
+            return None;
+        }
+        let ranked = self.rank(typed, hint, 4);
+        let (best, score) = *ranked.first()?;
+        let word = &self.entries[best as usize].word;
+        let best_folded = fold(word);
+        // le pluriel ou le féminin du même mot n'est pas un concurrent
+        let rival = ranked
+            .iter()
+            .skip(1)
+            .find(|(i, _)| !one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()));
+        if rival.is_some_and(|r| score - r.1 < 1.5) {
+            return None;
+        }
+        Some(word.clone())
+    }
+
+    fn rank(&self, typed: &str, hint: &Hint, max: usize) -> Vec<(u32, f32)> {
         let folded = fold(typed);
         if folded.is_empty() {
             return Vec::new();
@@ -620,14 +652,8 @@ impl Lexicon {
             .map(|(i, s)| (i, s + Self::adjust(&self.entries[i as usize], hint)))
             .collect();
         ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        let _ = max;
         ranked
-            .into_iter()
-            .take(max)
-            .map(|(idx, _)| {
-                let e = &self.entries[idx as usize];
-                Suggestion { word: e.word.clone(), tag: e.label, info: e.info.clone(), picto: None }
-            })
-            .collect()
     }
 }
 

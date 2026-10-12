@@ -199,3 +199,31 @@ fn phrase_longue() {
         assert!(got.iter().any(|(a, b)| a == "a" && b == "à"), "{s}");
     }
 }
+
+#[test]
+fn mots_rates_corriges_seuls() {
+    // mal écrits : la meilleure proposition est appliquée sans F7
+    let yes = [
+        ("on va a l'ospital", ' ', "ospital", "hôpital"),
+        ("il fait un exersice", ' ', "exersice", "exercice"),
+        ("mon professur", ' ', "professur", "professeur"),
+        ("un livre intéressan", ' ', "intéressan", "intéressant"),
+        ("c'est un probleme", ' ', "probleme", "problème"),
+        ("nous avons un devoire", ' ', "devoire", "devoir"),
+        ("la matematique", ' ', "matematique", "mathématique"),
+    ];
+    for (s, term, from, to) in yes {
+        let got = auto(s, term, custom::FULL);
+        println!("{s:<26} + {term:?} -> {got:?}");
+        assert_eq!(got, Some((from.to_string(), to.to_string())), "{s}");
+    }
+    // corrects ou ambigus : on ne touche à rien
+    for s in ["Paul mange", "il y a Amélie", "on a rendez-vous", "la maison est grande", "mon prénom est Kylian"] {
+        for term in [' ', '.'] {
+            let got = fixes(&format!("{s}{term}")).into_iter().find(|_| false);
+            println!("{s:<26} -> {got:?}");
+            let auto = auto(s, term, custom::FULL);
+            assert_eq!(auto, None, "{s}");
+        }
+    }
+}

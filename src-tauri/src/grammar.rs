@@ -347,7 +347,9 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 // on ne corrige que si la proposition se prononce pareil
                 let sure = !capital || same_sound(lower, &s.word);
                 if s.word != lower && sure {
-                    fix(s.word.clone(), format!("Mot inconnu. Tu voulais écrire « {} » ?", s.word), "orthographe", false);
+                    // proposition nettement devant les autres : appliquée sans demander
+                    let clear = !capital && lex.guess(lower, &hint(lex, &toks, i)).is_some_and(|g| g == s.word);
+                    fix(s.word.clone(), format!("Mot inconnu. Tu voulais écrire « {} » ?", s.word), "orthographe", clear);
                 }
             }
             continue;
