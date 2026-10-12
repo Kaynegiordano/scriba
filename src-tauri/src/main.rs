@@ -266,6 +266,11 @@ fn toggle(tx: State<Tx>) {
 }
 
 #[tauri::command]
+fn open_calc(tx: State<Tx>) {
+    let _ = tx.0.send(Msg::Calc);
+}
+
+#[tauri::command]
 fn open_conj(tx: State<Tx>) {
     let _ = tx.0.send(Msg::Conj);
 }
@@ -331,6 +336,28 @@ fn last_verb(sentence: &[char]) -> String {
         }
     }
     String::new()
+}
+
+fn show_calc(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("calc") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        bring_to_front(&w);
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, "calc", WebviewUrl::App("index.html#calc".into()))
+        .title("Scriba — Calculatrice")
+        .inner_size(380.0, 650.0)
+        .min_inner_size(320.0, 560.0)
+        .decorations(false)
+        .always_on_top(true)
+        .center()
+        .focused(true)
+        .build();
+    if let Ok(w) = built {
+        bring_to_front(&w);
+    }
 }
 
 fn show_conj(app: &AppHandle, verb: &str) {
@@ -547,6 +574,7 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
             }
             Msg::Toggle => set_visible(!hook::VISIBLE.load(Ordering::Relaxed)),
             Msg::Conj => show_conj(&app, &last_verb(&sentence)),
+            Msg::Calc => show_calc(&app),
             Msg::Read => {
                 let text = grab_text();
                 show_reader(&app, text);
@@ -573,7 +601,7 @@ fn main() {
     tauri::Builder::default()
         .manage(Tx(tx))
         .invoke_handler(tauri::generate_handler![
-            pick, apply_fix, learn, toggle, open_conj, conj_table, conj_search, get_settings, set_audio, open_reader,
+            pick, apply_fix, learn, toggle, open_conj, open_calc, conj_table, conj_search, get_settings, set_audio, open_reader,
             reading_text, syllabify, clipboard_text, picto_data
         ])
         .setup(move |app| {
@@ -621,6 +649,7 @@ fn main() {
                 &[&auto_items[0], &auto_items[1], &auto_items[2]],
             )?;
             let read_item = MenuItem::with_id(app, "read", "Lecture   Ctrl+Alt+R", true, None::<&str>)?;
+            let calc_item = MenuItem::with_id(app, "calc", "Calculatrice   Ctrl+Alt+K", true, None::<&str>)?;
             let audio_item = CheckMenuItem::with_id(app, "audio", "Lecture audio des mots", true, custom::audio(), None::<&str>)?;
             let _ = AUDIO_ITEM.set(audio_item.clone());
             let p = custom::pictos();
@@ -633,7 +662,7 @@ fn main() {
                 Submenu::with_items(app, "Pictogrammes", true, &[&picto_items[0], &picto_items[1], &picto_items[2]])?;
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &conj_item, &read_item, &auto_menu, &picto_menu, &audio_item, &quit_item],
+                &[&toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &quit_item],
             )?;
             let menu_tx = tray_tx.clone();
             TrayIconBuilder::new()
@@ -650,6 +679,9 @@ fn main() {
                     }
                     "read" => {
                         let _ = menu_tx.send(Msg::Read);
+                    }
+                    "calc" => {
+                        let _ = menu_tx.send(Msg::Calc);
                     }
                     "audio" => apply_audio(app, !custom::audio()),
                     id @ ("picto0" | "picto1" | "picto2") => {

@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import Calculator from "./Calculator";
 import Conjugation from "./Conjugation";
 import Reader from "./Reader";
 import "./styles.css";
@@ -8,7 +9,10 @@ import "./styles.css";
 const hash = decodeURIComponent(window.location.hash.slice(1));
 const root = createRoot(document.getElementById("root")!);
 
-if (hash.startsWith("lire")) {
+if (hash.startsWith("calc")) {
+  document.documentElement.classList.add("calc-page");
+  root.render(<Calculator />);
+} else if (hash.startsWith("lire")) {
   document.documentElement.classList.add("reader-page");
   root.render(<Reader />);
 } else if (hash.startsWith("conj")) {

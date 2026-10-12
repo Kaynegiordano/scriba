@@ -36,6 +36,8 @@ pub enum Msg {
     Learn,
     /// lire à voix haute / ouvrir la fenêtre de lecture (Ctrl+Alt+R)
     Read,
+    /// ouvrir la calculatrice (Ctrl+Alt+K)
+    Calc,
 }
 
 #[derive(Clone)]
@@ -451,6 +453,11 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     }
     if left_alt_combo && vk == b'R' as u16 {
         send(Msg::Read);
+        crate::inject::mask_alt();
+        return true;
+    }
+    if left_alt_combo && vk == b'K' as u16 {
+        send(Msg::Calc);
         crate::inject::mask_alt();
         return true;
     }
