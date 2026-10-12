@@ -57,7 +57,7 @@ fn subject_of(word: &str) -> Option<u8> {
     match word {
         "je" | "j'" => Some(1),
         "tu" => Some(2),
-        "il" | "elle" | "on" => Some(3),
+        "il" | "elle" | "on" | "ça" => Some(3),
         "nous" => Some(4),
         "vous" => Some(5),
         "ils" | "elles" => Some(6),
@@ -298,11 +298,95 @@ fn participle(lex: &Lexicon, lemma: &str, aux: &str, subject: &str) -> Option<St
     lex.lookup(&p).map(|_| p)
 }
 
+/// Verbes suivis de la préposition « à » (« il est allé à l'école »).
+const TO_VERBS: &[&str] = &[
+    "aller", "venir", "arriver", "rentrer", "retourner", "passer", "penser", "jouer", "parler", "habiter", "rester",
+    "répondre", "donner", "dire", "demander", "téléphoner", "ressembler", "tenir", "servir", "participer", "assister",
+    "croire", "réfléchir", "renoncer", "appartenir", "obéir", "plaire", "manquer", "revenir", "monter", "descendre",
+];
+/// Verbes qui appellent « où » (« je vois où ça pèche », « dis-moi où il habite »).
+const WHERE_VERBS: &[&str] = &[
+    "voir", "savoir", "demander", "dire", "comprendre", "trouver", "chercher", "connaître", "regarder", "habiter",
+    "aller", "venir", "mettre", "ranger", "poser", "vivre", "être", "retrouver", "deviner", "chercher", "indiquer",
+    "montrer", "rester", "travailler",
+];
+/// Noms de lieu ou de temps suivis de « où » (« l'endroit où », « le jour où »).
+const WHERE_NOUNS: &[&str] = &[
+    "endroit", "jour", "moment", "lieu", "ville", "pays", "maison", "place", "côté", "là", "partout", "ailleurs",
+    "part", "année", "soir", "matin", "époque", "école", "village", "quartier", "salle", "rue",
+];
+const SUBJECTS_AFTER_WHERE: &[&str] = &[
+    "je", "j'", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles", "ça", "ce", "c'", "le", "la", "les", "l'",
+    "un", "une", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "notre", "votre", "leur", "ce", "cette",
+];
+
+/// « ou » est en fait « où » : suivi d'être / aller (« ou est mon sac »), ou placé après un verbe
+/// ou un nom de lieu et avant un sujet (« je vois ou ça pèche », « l'endroit ou il habite »).
+fn ou_is_where(lex: &Lexicon, toks: &[Token], i: usize) -> bool {
+    let next = toks.get(i + 1).filter(|n| n.sent == toks[i].sent).map(|n| n.lower.as_str());
+    if next.is_some_and(|n| {
+        matches!(n, "est" | "sont" | "était" | "étaient" | "va" | "vont" | "allez" | "es" | "êtes" | "étais" | "vas")
+    }) {
+        return true;
+    }
+    if !next.is_some_and(|n| SUBJECTS_AFTER_WHERE.contains(&n)) {
+        return false;
+    }
+    // le mot d'avant, en sautant « pas », « plus », « bien »…
+    let mut j = i;
+    while j > 0 {
+        j -= 1;
+        let p = &toks[j];
+        if p.sent != toks[i].sent {
+            return false;
+        }
+        if ADVERBS.contains(&p.lower.as_str()) {
+            continue;
+        }
+        if WHERE_NOUNS.contains(&p.lower.as_str()) {
+            return true;
+        }
+        return lex.lookup(&p.lower).is_some_and(|e| {
+            e.verbs.iter().any(|(l, _)| WHERE_VERBS.contains(&lex.lemma_name(*l)))
+        });
+    }
+    false
+}
+
 /// Vérifie les mots terminés de la phrase (pas le mot en cours de frappe).
 pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
-    let toks = tokenize(lex, chars);
+    let mut toks = tokenize(lex, chars);
     let mut out: Vec<Correction> = Vec::new();
     let done = |t: &Token| t.end < chars.len() && !chars[t.end].is_alphabetic();
+
+    // 0. accents manquants : rétablis d'abord, de gauche à droite, pour que les mots suivants
+    //    soient lus avec le bon contexte (« ca peche » -> « ça pèche », donc un verbe après « ça »)
+    for i in 0..toks.len() {
+        let lower = toks[i].lower.clone();
+        if lex.lookup(&lower).is_some() || lower.ends_with('\'') || lower.chars().count() < 2 || custom::knows(&lower) {
+            continue;
+        }
+        let capital = toks[i].text.chars().next().is_some_and(|c| c.is_uppercase());
+        let first = i == 0 || toks[i - 1].sent != toks[i].sent;
+        if capital && !first {
+            continue;
+        }
+        let Some((word, true)) = lex.restore_accents(&lower, &hint(lex, &toks, i)) else { continue };
+        let t = &toks[i];
+        let replacement = match_case(&t.text, &word);
+        if done(t) && !custom::ignored(&t.text, &replacement) {
+            out.push(Correction {
+                start: t.start,
+                end: t.end,
+                original: t.text.clone(),
+                replacement,
+                reason: format!("Attention aux accents : « {word} »."),
+                kind: "orthographe",
+                auto: true,
+            });
+        }
+        toks[i].lower = word.to_lowercase();
+    }
 
     for (i, t) in toks.iter().enumerate() {
         if !done(t) || out.iter().any(|c| c.start == t.start) {
@@ -365,6 +449,21 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             .find(|n| !ADVERBS.contains(&n.lower.as_str()))
             .and_then(|n| lex.lookup(&n.lower));
         match lower {
+            "a" if subj.is_none()
+                && next.is_some()
+                && i > 0
+                && toks[i - 1].sent == t.sent
+                && lex.lookup(&toks[i - 1].lower).is_some_and(|p| {
+                    p.verbs.iter().any(|(l, _)| TO_VERBS.contains(&lex.lemma_name(*l)))
+                }) =>
+            {
+                fix("à".into(), "Après ce verbe, c'est la préposition « à » (on ne peut pas dire « avait »).".into(), "homophone", true);
+                continue;
+            }
+            "ou" if ou_is_where(lex, &toks, i) => {
+                fix("où".into(), "« où » avec un accent : on peut dire « à quel endroit ».".into(), "homophone", true);
+                continue;
+            }
             "à" if subj.is_some_and(|(p, _)| p == 3) => {
                 fix("a".into(), "« il a » : c'est le verbe avoir (on peut dire « il avait »), sans accent.".into(), "homophone", true);
                 continue;

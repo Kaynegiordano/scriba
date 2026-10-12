@@ -418,6 +418,41 @@ impl Lexicon {
             .collect()
     }
 
+    /// Mot tapé sans accents (« peche », « ca ») : le mot accentué que la phrase attend.
+    /// Le booléen dit si le choix est assez net pour être appliqué sans demander.
+    pub fn restore_accents(&self, typed: &str, hint: &Hint) -> Option<(String, bool)> {
+        let mut scored: Vec<(&Entry, f32)> = self
+            .same_letters(typed)
+            .into_iter()
+            .filter(|e| e.word != typed)
+            .map(|e| {
+                let mut s = e.weight + Self::adjust(e, hint);
+                // juste après un sujet (« ça », « il »), un mot qui ne peut pas être un verbe est improbable
+                if hint.person.is_some() && !hint.participle && !hint.infinitive && e.verbs.is_empty() {
+                    s -= 2.5;
+                }
+                // après « a », « est », « ont »… : un participe passé, pas un nom
+                if hint.participle && e.verbs.is_empty() {
+                    s -= 3.5;
+                }
+                // juste après « le », « la », « mon »… : un nom ou un adjectif, pas un verbe
+                if hint.number.is_some() && hint.person.is_none() {
+                    s += match e.top_tag() {
+                        "NOM" | "ADJ" => 2.5,
+                        "VER" | "AUX" => -2.0,
+                        _ => 0.0,
+                    };
+                }
+                (e, s)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        scored.dedup_by(|a, b| a.0.word == b.0.word);
+        let best = scored.first()?;
+        let sure = scored.get(1).is_none_or(|next| best.1 - next.1 >= 3.0);
+        Some((best.0.word.clone(), sure))
+    }
+
     /// Les mots qui se prononcent comme `e` (ces / sait / c'est…), du plus courant au moins courant.
     pub fn homophones<'a>(&'a self, e: &'a Entry) -> Vec<&'a Entry> {
         let mut v: Vec<&Entry> = range(&self.by_phon, &e.phon)
@@ -746,4 +781,5 @@ pub mod tests {
         assert_eq!(first("cheva", Hint { number: Some(PLUR), ..Default::default() }), "chevaux");
         assert_eq!(first("cheva", Hint { number: Some(SING), ..Default::default() }), "cheval");
     }
+
 }

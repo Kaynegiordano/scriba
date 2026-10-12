@@ -259,3 +259,44 @@ fn mots_a_laisser() {
     }
     println!("CHANGES: {changed:?}");
 }
+
+#[test]
+fn sans_accents() {
+    // frappe réelle : chaque mot est corrigé (ou non) avant de taper le suivant
+    let run = |phrase: &str| -> String {
+        let mut typed: Vec<char> = Vec::new();
+        for w in phrase.split(' ') {
+            typed.extend(w.chars());
+            for c in crate::grammar::auto_fixes(lex(), &typed, ' ', custom::FULL).into_iter().rev() {
+                typed.splice(c.start..c.end, c.replacement.chars());
+            }
+            typed.push(' ');
+        }
+        typed.into_iter().collect::<String>().trim_end().to_string()
+    };
+    let cases = [
+        ("Ok, ok je vois ou ca peche un peu. Je vais ecrire sans accent pour voir ce que ca donne .", ""),
+        ("ou est mon sac", "où est mon sac"),
+        ("je ne sais pas ou il habite", "je ne sais pas où il habite"),
+        ("c'est l'endroit ou il dort", "c'est l'endroit où il dort"),
+        ("toi ou moi", "toi ou moi"),
+        ("il ou elle", "il ou elle"),
+        ("tu veux du the ou du cafe", "tu veux du thé ou du café"),
+        ("il mange ou il dort", "il mange ou il dort"),
+        ("elle a mange une pomme", "elle a mangé une pomme"),
+        ("je suis alle a l'ecole hier", "je suis allé à l'école hier"),
+        ("ca va tres bien", "ça va très bien"),
+        ("la peche est ouverte", "la peche est ouverte"),
+        ("il a peche un poisson", "il a peche un poisson"),
+        ("le pere et la mere", "le père et la mère"),
+    ];
+    for (input, want) in cases {
+        let got = run(input);
+        println!("{input}
+   -> {got}");
+        if !want.is_empty() {
+            assert_eq!(got, want);
+        }
+    }
+}
+
