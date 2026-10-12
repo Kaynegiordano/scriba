@@ -336,13 +336,34 @@ pub fn start(tx: Sender<Msg>) {
     let _ = TX.set(tx);
     std::thread::spawn(|| unsafe {
         STATE.lock().unwrap().caps = GetKeyState(VK_CAPITAL as i32) & 1 != 0;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            MsgWaitForMultipleObjects, PeekMessageW, UnhookWindowsHookEx, PM_REMOVE, QS_ALLINPUT, WM_QUIT,
+        };
         let module = GetModuleHandleW(std::ptr::null());
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
-        SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+        let install = || (
+            SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0),
+            SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0),
+        );
+        let (mut kb, mut mouse) = install();
+        let mut last = std::time::Instant::now();
         let mut msg: MSG = std::mem::zeroed();
-        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        loop {
+            MsgWaitForMultipleObjects(0, std::ptr::null(), 0, 5000, QS_ALLINPUT);
+            while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                if msg.message == WM_QUIT {
+                    return;
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            // Windows retire sans prévenir un branchement clavier jugé trop lent (ou après une veille) :
+            // on le remet régulièrement, sans rien casser s'il était encore en place.
+            if last.elapsed() >= std::time::Duration::from_secs(15) && !BUSY.load(Ordering::Relaxed) && !HOLD.load(Ordering::Relaxed) {
+                UnhookWindowsHookEx(kb);
+                UnhookWindowsHookEx(mouse);
+                (kb, mouse) = install();
+                last = std::time::Instant::now();
+            }
         }
     });
 }
