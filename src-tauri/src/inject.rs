@@ -50,6 +50,17 @@ fn release_modifiers() {
     }
 }
 
+/// Ctrl+C dans l'application active (pour lire le texte sélectionné).
+pub fn copy_selection() {
+    release_modifiers();
+    send(&[
+        key(VK_CONTROL, 0, 0),
+        key(b'C' as u16, 0, 0),
+        key(b'C' as u16, 0, KEYEVENTF_KEYUP),
+        key(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+    ]);
+}
+
 /// Efface `erase` caractères puis tape `text`.
 /// Les lettres présentes sur le clavier sont tapées comme de vraies touches
 /// (les applis récentes, Bloc-notes ou Word, mélangent parfois les caractères

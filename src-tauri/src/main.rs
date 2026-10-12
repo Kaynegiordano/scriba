@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod auto_tests;
+mod clipboard;
 mod conj;
 mod custom;
 mod grammar;
@@ -14,7 +15,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use conj::{Conjugator, Table};
 use grammar::Correction;
@@ -27,6 +28,9 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 
 static LEX: OnceLock<Lexicon> = OnceLock::new();
 static CONJ: OnceLock<Conjugator> = OnceLock::new();
+/// Le texte affiché dans la fenêtre de lecture.
+static READING: Mutex<String> = Mutex::new(String::new());
+static AUDIO_ITEM: OnceLock<CheckMenuItem<tauri::Wry>> = OnceLock::new();
 
 /// Le dictionnaire s'il est déjà chargé (le clavier ne doit jamais attendre son chargement).
 pub fn try_lex() -> Option<&'static Lexicon> {
@@ -84,6 +88,134 @@ fn pick(index: usize, tx: State<Tx>) {
 #[tauri::command]
 fn apply_fix(tx: State<Tx>) {
     let _ = tx.0.send(Msg::Fix);
+}
+
+#[derive(Clone, Serialize)]
+struct Settings {
+    auto: u8,
+    audio: bool,
+}
+
+#[tauri::command]
+fn get_settings() -> Settings {
+    Settings { auto: custom::mode(), audio: custom::audio() }
+}
+
+#[tauri::command]
+fn set_audio(app: AppHandle, on: bool) {
+    apply_audio(&app, on);
+}
+
+fn apply_audio(app: &AppHandle, on: bool) {
+    custom::set_audio(on);
+    if let Some(item) = AUDIO_ITEM.get() {
+        let _ = item.set_checked(on);
+    }
+    let _ = app.emit("settings", Settings { auto: custom::mode(), audio: on });
+}
+
+#[tauri::command]
+fn open_reader(tx: State<Tx>) {
+    let _ = tx.0.send(Msg::Read);
+}
+
+#[tauri::command]
+fn clipboard_text() -> String {
+    clipboard::get_text().unwrap_or_default()
+}
+
+#[tauri::command]
+fn reading_text() -> String {
+    READING.lock().unwrap().clone()
+}
+
+/// Un morceau de texte pour la fenêtre de lecture : un mot (avec ses syllabes) ou ce qui les sépare.
+#[derive(Serialize)]
+struct Piece {
+    text: String,
+    syll: Vec<String>,
+}
+
+#[tauri::command]
+fn syllabify(text: String) -> Vec<Piece> {
+    let lex = lex();
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<Piece> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_alphabetic() {
+            let start = i;
+            while i < chars.len() && !chars[i].is_alphabetic() {
+                i += 1;
+            }
+            out.push(Piece { text: chars[start..i].iter().collect(), syll: Vec::new() });
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && chars[i].is_alphabetic() {
+            i += 1;
+        }
+        // « aujourd'hui » reste entier ; « l'école » donne « l' » + « école »
+        if i + 1 < chars.len() && matches!(chars[i], '\'' | '’') && chars[i + 1].is_alphabetic() {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j].is_alphabetic() {
+                j += 1;
+            }
+            let glued: String = chars[start..j].iter().map(|c| if *c == '’' { '\'' } else { *c }).collect();
+            if lex.lookup(&glued).is_some() {
+                i = j;
+            } else {
+                i += 1; // l'apostrophe reste avec « l' »
+            }
+        }
+        let word: String = chars[start..i].iter().collect();
+        let syll = if word.ends_with(['\'', '’']) { vec![word.clone()] } else { lex.syllables(&word) };
+        out.push(Piece { text: word, syll });
+    }
+    out
+}
+
+/// Le texte sélectionné dans l'application (Ctrl+C simulé, presse-papiers rendu tel qu'il était),
+/// sinon la phrase en cours de frappe.
+fn grab_text() -> String {
+    if hook::target_is_writing_app() {
+        let before = clipboard::sequence();
+        let saved = clipboard::get_text();
+        inject::copy_selection();
+        let start = std::time::Instant::now();
+        while clipboard::sequence() == before && start.elapsed() < Duration::from_millis(400) {
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        if clipboard::sequence() != before {
+            let text = clipboard::get_text().unwrap_or_default();
+            if let Some(prev) = saved {
+                clipboard::set_text(&prev);
+            }
+            if !text.trim().is_empty() {
+                return text;
+            }
+        }
+    }
+    hook::current_sentence()
+}
+
+fn show_reader(app: &AppHandle, text: String) {
+    *READING.lock().unwrap() = text.clone();
+    if let Some(w) = app.get_webview_window("lire") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        let _ = w.emit_to("lire", "reader-text", text);
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, "lire", WebviewUrl::App("index.html#lire".into()))
+        .title("Scriba — Lecture")
+        .inner_size(960.0, 720.0)
+        .min_inner_size(560.0, 400.0)
+        .decorations(false)
+        .center()
+        .focused(true)
+        .build();
 }
 
 #[tauri::command]
@@ -349,7 +481,8 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 for (orig, repl, kind) in &a.pairs {
                     if *kind == "orthographe" {
                         custom::add_word(orig);
-                    } else {
+                    } else if orig.chars().count() > 3 {
+                        // a / et / sa / ce… : refuser une fois ne veut pas dire « jamais »
                         custom::add_ignore(orig, repl);
                     }
                 }
@@ -369,6 +502,10 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
             }
             Msg::Toggle => set_visible(!hook::VISIBLE.load(Ordering::Relaxed)),
             Msg::Conj => show_conj(&app, &last_verb(&sentence)),
+            Msg::Read => {
+                let text = grab_text();
+                show_reader(&app, text);
+            }
         }
     }
 }
@@ -390,7 +527,10 @@ fn main() {
 
     tauri::Builder::default()
         .manage(Tx(tx))
-        .invoke_handler(tauri::generate_handler![pick, apply_fix, learn, toggle, open_conj, conj_table, conj_search])
+        .invoke_handler(tauri::generate_handler![
+            pick, apply_fix, learn, toggle, open_conj, conj_table, conj_search, get_settings, set_audio, open_reader,
+            reading_text, syllabify, clipboard_text
+        ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("fenêtre principale");
             let hwnd = win.hwnd()?.0 as isize;
@@ -409,6 +549,16 @@ fn main() {
                 SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
             set_visible(true);
+            // « Réduire tout » (Win+D, Win+M) ne doit pas faire disparaître la barre
+            let bar = win.clone();
+            win.on_window_event(move |e| {
+                if let tauri::WindowEvent::Resized(_) = e {
+                    if bar.is_minimized().unwrap_or(false) && hook::VISIBLE.load(Ordering::Relaxed) {
+                        let _ = bar.unminimize();
+                        set_visible(true);
+                    }
+                }
+            });
 
             let toggle_item = MenuItem::with_id(app, "toggle", "Afficher / masquer   Ctrl+Alt+L", true, None::<&str>)?;
             let conj_item = MenuItem::with_id(app, "conj", "Conjugaison   Ctrl+Alt+C", true, None::<&str>)?;
@@ -425,7 +575,13 @@ fn main() {
                 true,
                 &[&auto_items[0], &auto_items[1], &auto_items[2]],
             )?;
-            let menu = Menu::with_items(app, &[&toggle_item, &conj_item, &auto_menu, &quit_item])?;
+            let read_item = MenuItem::with_id(app, "read", "Lecture   Ctrl+Alt+R", true, None::<&str>)?;
+            let audio_item = CheckMenuItem::with_id(app, "audio", "Lecture audio des mots", true, custom::audio(), None::<&str>)?;
+            let _ = AUDIO_ITEM.set(audio_item.clone());
+            let menu = Menu::with_items(
+                app,
+                &[&toggle_item, &conj_item, &read_item, &auto_menu, &audio_item, &quit_item],
+            )?;
             let menu_tx = tray_tx.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().expect("icône"))
@@ -439,6 +595,10 @@ fn main() {
                     "conj" => {
                         let _ = menu_tx.send(Msg::Conj);
                     }
+                    "read" => {
+                        let _ = menu_tx.send(Msg::Read);
+                    }
+                    "audio" => apply_audio(app, !custom::audio()),
                     id @ ("auto0" | "auto1" | "auto2") => {
                         let m = id.as_bytes()[4] - b'0';
                         custom::set_mode(m);

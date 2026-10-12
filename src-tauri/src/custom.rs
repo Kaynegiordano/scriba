@@ -1,11 +1,12 @@
 //! Réglages et dictionnaire personnel, enregistrés dans %APPDATA%\Scriba :
 //!   settings.txt      auto=0|1|2   (0 = aucune, 1 = orthographe, 2 = orthographe + grammaire)
+//!                     audio=0|1    lecture à voix haute (désactivée par défaut)
 //!   dictionnaire.txt  un mot par ligne (mot correct) ou « faux>juste » (correction refusée)
 
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 pub const OFF: u8 = 0;
@@ -13,6 +14,7 @@ pub const SPELLING: u8 = 1;
 pub const FULL: u8 = 2;
 
 static MODE: AtomicU8 = AtomicU8::new(FULL);
+static AUDIO: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct Custom {
@@ -34,6 +36,9 @@ pub fn load() {
     let Some(d) = dir() else { return };
     if let Ok(t) = std::fs::read_to_string(d.join("settings.txt")) {
         for line in t.lines() {
+            if let Some(v) = line.strip_prefix("audio=") {
+                AUDIO.store(v.trim() == "1", Ordering::Relaxed);
+            }
             if let Some(v) = line.strip_prefix("auto=") {
                 if let Ok(m) = v.trim().parse::<u8>() {
                     MODE.store(m.min(FULL), Ordering::Relaxed);
@@ -63,12 +68,25 @@ pub fn mode() -> u8 {
 
 pub fn set_mode(m: u8) {
     MODE.store(m.min(FULL), Ordering::Relaxed);
+    save();
+}
+
+pub fn audio() -> bool {
+    AUDIO.load(Ordering::Relaxed)
+}
+
+pub fn set_audio(on: bool) {
+    AUDIO.store(on, Ordering::Relaxed);
+    save();
+}
+
+fn save() {
     if cfg!(test) {
         return;
     }
     if let Some(d) = dir() {
         let _ = std::fs::create_dir_all(&d);
-        let _ = std::fs::write(d.join("settings.txt"), format!("auto={m}\n"));
+        let _ = std::fs::write(d.join("settings.txt"), format!("auto={}\naudio={}\n", mode(), u8::from(audio())));
     }
 }
 

@@ -131,6 +131,7 @@ fn selon_la_phrase() {
         // le mot d'avant, corrigé quand la suite le confirme
         ("il commence a manger", "a", "à"),
         ("il et grand", "et", "est"),
+        ("il et très grand", "et", "est"),
         ("sa va", "sa", "ça"),
         ("il ma dit", "ma", "m'a"),
         ("elle la mangé", "la", "l'a"),
@@ -188,4 +189,13 @@ fn syllabes() {
     assert_eq!(l.syllables("maison"), vec!["mai", "son"]);
     assert_eq!(l.syllables("Chocolat"), vec!["Cho", "co", "lat"]);
     assert_eq!(l.syllables("youtube"), vec!["youtube"]);
+}
+
+#[test]
+fn phrase_longue() {
+    for s in ["ça va et il commence a manger", "il commence a manger", "et il commence a manger"] {
+        let got = all(s, ',');
+        println!("{s:<34} + ',' -> {got:?}");
+        assert!(got.iter().any(|(a, b)| a == "a" && b == "à"), "{s}");
+    }
 }

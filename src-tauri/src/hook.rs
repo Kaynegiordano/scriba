@@ -34,6 +34,8 @@ pub enum Msg {
     Undo(AutoFix),
     /// « ce mot est correct » (F8)
     Learn,
+    /// lire à voix haute / ouvrir la fenêtre de lecture (Ctrl+Alt+R)
+    Read,
 }
 
 #[derive(Clone)]
@@ -272,6 +274,20 @@ fn replay_one(ev: &Ev) {
     while REPLAY_SEEN.load(Ordering::SeqCst) < target && now_ms() < start + 40 {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+    // comme pour les mots retapes : trop vite, certaines applis perdent des touches
+    if !ev.up {
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+}
+
+/// L'application où l'élève écrit est une appli d'écriture (on peut y simuler Ctrl+C sans risque :
+/// dans un terminal, Ctrl+C arrêterait le programme en cours).
+pub fn target_is_writing_app() -> bool {
+    STATE.lock().unwrap().writing
+}
+
+pub fn current_sentence() -> String {
+    STATE.lock().unwrap().sentence.iter().collect()
 }
 
 pub fn set_last_auto(a: Option<AutoFix>) {
@@ -399,6 +415,11 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     }
     if left_alt_combo && vk == b'C' as u16 {
         send(Msg::Conj);
+        crate::inject::mask_alt();
+        return true;
+    }
+    if left_alt_combo && vk == b'R' as u16 {
+        send(Msg::Read);
         crate::inject::mask_alt();
         return true;
     }

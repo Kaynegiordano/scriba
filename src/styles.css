@@ -220,6 +220,11 @@ body,
   color: var(--accent);
 }
 
+.tool.active {
+  color: var(--accent);
+  background: var(--chip-hover);
+}
+
 .notice {
   display: flex;
   align-items: center;

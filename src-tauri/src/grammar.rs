@@ -356,6 +356,12 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         // 2. homophones
         let subj = subject_before(&toks, i);
         let next_entry = next.and_then(|n| lex.lookup(&n.lower));
+        // le mot suivant en sautant les adverbes (« il et tres grand »)
+        let next_word_entry = toks[i + 1..]
+            .iter()
+            .take_while(|n| n.sent == t.sent)
+            .find(|n| !ADVERBS.contains(&n.lower.as_str()))
+            .and_then(|n| lex.lookup(&n.lower));
         match lower {
             "à" if subj.is_some_and(|(p, _)| p == 3) => {
                 fix("a".into(), "« il a » : c'est le verbe avoir (on peut dire « il avait »), sans accent.".into(), "homophone", true);
@@ -370,7 +376,7 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 continue;
             }
             "et" if matches!(prev, Some("il" | "elle" | "on" | "c'" | "ce"))
-                && next_entry.is_some_and(|n| n.top_tag() == "ADJ" || n.is_participle()) =>
+                && next_word_entry.is_some_and(|n| n.top_tag() == "ADJ" || n.is_participle()) =>
             {
                 fix("est".into(), "On peut dire « il était » : c'est le verbe être, « est ».".into(), "homophone", true);
                 continue;
