@@ -1,7 +1,7 @@
 //! Tests de la correction automatique et des règles ajoutées avec elle.
 
 use crate::custom;
-use crate::grammar::{auto_fix, check};
+use crate::grammar::{auto_fix, auto_fixes, check};
 use crate::lexicon::tests::lex;
 
 fn auto(s: &str, term: char, mode: u8) -> Option<(String, String)> {
@@ -29,6 +29,7 @@ fn applique_seul() {
         ("tu peu", ' ', "peu", "peux"),
         ("ils son", ' ', "son", "sont"),
         ("les chat", ',', "chat", "chats"),
+        ("les chats dorme", ' ', "dorme", "dorment"),
     ];
     let mut failed = Vec::new();
     for (s, term, from, to) in yes {
@@ -50,8 +51,7 @@ fn ne_touche_pas() {
         ("envoie un SMS", ' '),
         ("mon pseudo", ' '),
         ("ke", ' '),
-        ("les chats dorme", ' '), // sujet nom : proposé (F7), pas appliqué seul
-        ("il commence a", ' '),   // a / à dépend du mot suivant
+        ("il commence a", ' '), // a / à dépend du mot suivant : rien tant qu'il n'est pas tapé
         ("jean@gmail", '.'),
         ("www.mezon", '.'),
         ("mon_fichier", '.'),
@@ -117,4 +117,75 @@ fn nouvelles_regles() {
         })
         .collect();
     assert!(failed.is_empty() && noisy.is_empty(), "manqués : {failed:?}\nfausses alertes : {noisy:#?}");
+}
+
+/// Toutes les corrections faites quand le dernier mot se termine (y compris sur les mots d'avant).
+fn all(s: &str, term: char) -> Vec<(String, String)> {
+    let chars: Vec<char> = s.chars().collect();
+    auto_fixes(lex(), &chars, term, custom::FULL).into_iter().map(|c| (c.original, c.replacement)).collect()
+}
+
+#[test]
+fn selon_la_phrase() {
+    let yes = [
+        // le mot d'avant, corrigé quand la suite le confirme
+        ("il commence a manger", "a", "à"),
+        ("il et grand", "et", "est"),
+        ("sa va", "sa", "ça"),
+        ("il ma dit", "ma", "m'a"),
+        ("elle la mangé", "la", "l'a"),
+        ("se matin", "se", "ce"),
+        ("leur parents", "leur", "leurs"),
+        // le mot lui-même, choisi selon ce qui précède
+        ("il ces", "ces", "sait"),
+        ("je ces", "ces", "sais"),
+        ("on cent", "cent", "sent"),
+        ("les mezon", "mezon", "maisons"),
+        ("il a manjé", "manjé", "mangé"),
+        ("il va manjé", "manjé", "manger"),
+        ("ils manjai", "manjai", "mangeaient"),
+        ("les zami", "zami", "amis"),
+        ("des zenfan", "zenfan", "enfants"),
+        ("un nami", "nami", "ami"),
+    ];
+    let mut failed = Vec::new();
+    for (s, from, to) in yes {
+        let got = all(s, ' ');
+        println!("{s:<24} -> {got:?}");
+        if !got.iter().any(|(a, b)| a == from && b == to) {
+            failed.push(s);
+        }
+    }
+    let clean = [
+        "il commence à manger",
+        "elle et moi",
+        "sa porte",
+        "il sait",
+        "les maisons",
+        "il la mange",
+        "ma mère",
+        "il se lave",
+        "leur dit",
+        "elle aussi",
+        "il est grand",
+        "je sais",
+        "nous deux",
+        "on sent",
+    ];
+    let noisy: Vec<String> = clean
+        .iter()
+        .filter_map(|s| {
+            let f = all(s, ' ');
+            (!f.is_empty()).then(|| format!("{s} -> {f:?}"))
+        })
+        .collect();
+    assert!(failed.is_empty() && noisy.is_empty(), "manqués : {failed:?}\nfausses alertes : {noisy:#?}");
+}
+
+#[test]
+fn syllabes() {
+    let l = lex();
+    assert_eq!(l.syllables("maison"), vec!["mai", "son"]);
+    assert_eq!(l.syllables("Chocolat"), vec!["Cho", "co", "lat"]);
+    assert_eq!(l.syllables("youtube"), vec!["youtube"]);
 }

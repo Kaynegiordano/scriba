@@ -81,6 +81,10 @@ pub struct Entry {
     pub verbs: Vec<(u32, Vec<Form>)>,
     label: &'static str,
     info: String,
+    /// clé de prononciation (pour trouver les homophones)
+    phon: Box<str>,
+    /// syllabes écrites (« mai-son »), vide si inconnues
+    pub syll: Box<str>,
 }
 
 impl Entry {
@@ -306,6 +310,7 @@ impl Lexicon {
             };
             let verbs_col = f.next().unwrap_or("");
             let gn = u8::from_str_radix(f.next().unwrap_or("0"), 16).unwrap_or(0);
+            let syll = f.next().unwrap_or("");
             let idx = entries.len() as u32;
             let weight = (1.0 + freq.parse::<f32>().unwrap_or(0.0)).ln();
 
@@ -344,6 +349,8 @@ impl Lexicon {
                 verbs,
                 label: tag_label(top, is_verb),
                 info,
+                phon: key(phons.split('|').next().unwrap_or("")).into(),
+                syll: syll.into(),
             });
             by_ortho.push((fold(word), idx));
             let mut seen: Vec<String> = Vec::new();
@@ -376,6 +383,8 @@ impl Lexicon {
                 verbs: Vec::new(),
                 label: "nom",
                 info: String::new(),
+                phon: key(&phonemes(&w, true)).into(),
+                syll: "".into(),
             });
             by_ortho.push((fold(&w), idx));
             by_phon.push((key(&phonemes(&w, true)), idx));
@@ -405,6 +414,47 @@ impl Lexicon {
             .filter(|(k, _)| *k == f)
             .map(|(_, i)| &self.entries[*i as usize])
             .collect()
+    }
+
+    /// Les mots qui se prononcent comme `e` (ces / sait / c'est…), du plus courant au moins courant.
+    pub fn homophones<'a>(&'a self, e: &'a Entry) -> Vec<&'a Entry> {
+        let mut v: Vec<&Entry> = range(&self.by_phon, &e.phon)
+            .iter()
+            .filter(|(k, _)| **k == *e.phon)
+            .map(|(_, i)| &self.entries[*i as usize])
+            .filter(|h| h.word != e.word)
+            .collect();
+        v.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+        v.dedup_by(|a, b| a.word == b.word);
+        v
+    }
+
+    /// Syllabes d'un mot (« maison » -> mai, son) ; le mot entier si inconnu.
+    pub fn syllables(&self, word: &str) -> Vec<String> {
+        let lower = word.to_lowercase();
+        match self.lookup(&lower) {
+            Some(e) if !e.syll.is_empty() => {
+                // on recopie les lettres du mot tel qu'il est écrit (majuscules comprises)
+                let mut out = Vec::new();
+                let mut chars = word.chars();
+                for part in e.syll.split('-') {
+                    let n = part.chars().count();
+                    let piece: String = chars.by_ref().take(n).collect();
+                    if !piece.is_empty() {
+                        out.push(piece);
+                    }
+                }
+                let rest: String = chars.collect();
+                if !rest.is_empty() {
+                    match out.last_mut() {
+                        Some(last) => last.push_str(&rest),
+                        None => out.push(rest),
+                    }
+                }
+                out
+            }
+            _ => vec![word.to_string()],
+        }
     }
 
     pub fn lemma_name(&self, id: u32) -> &str {
@@ -451,7 +501,7 @@ impl Lexicon {
     /// Le mot que l'élève voulait écrire, quand on peut en être presque certain :
     /// un seul candidat, ou un candidat bien plus courant que les autres.
     /// Candidats : mêmes sons (mezon), ou une seule faute de lettre (bonojur).
-    pub fn confident(&self, typed: &str) -> Option<String> {
+    pub fn confident(&self, typed: &str, hint: &Hint) -> Option<String> {
         let folded = fold(typed);
         let letters = folded.chars().count();
         if letters < 3 {
@@ -463,15 +513,18 @@ impl Lexicon {
         for k in &keys {
             for (pk, idx) in range(&self.by_phon, k) {
                 if pk == k {
-                    cands.insert(*idx, self.entries[*idx as usize].weight);
+                    let e = &self.entries[*idx as usize];
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint));
                 }
             }
         }
         if letters >= 5 {
             let q = folded.as_bytes();
             for (k, idx) in &self.by_ortho {
-                if one_typo(k.as_bytes(), q) {
-                    cands.insert(*idx, self.entries[*idx as usize].weight);
+                // une faute de lettre compte moins qu'un mot qui se prononce pareil
+                if one_typo(k.as_bytes(), q) && !cands.contains_key(idx) {
+                    let e = &self.entries[*idx as usize];
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - 2.5);
                 }
             }
         }
@@ -493,7 +546,11 @@ impl Lexicon {
             .filter(|(i, _)| {
                 *i == best.0 || one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes())
             })
-            .min_by_key(|(i, _)| edit_distance(fold(&self.entries[*i as usize].word).as_bytes(), folded.as_bytes()))?;
+            .min_by(|a, b| {
+                let ctx = |i: u32| Self::adjust(&self.entries[i as usize], hint);
+                let dist = |i: u32| edit_distance(fold(&self.entries[i as usize].word).as_bytes(), folded.as_bytes());
+                ctx(b.0).total_cmp(&ctx(a.0)).then(dist(a.0).cmp(&dist(b.0)))
+            })?;
         Some(self.entries[closest.0 as usize].word.clone())
     }
 

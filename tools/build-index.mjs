@@ -1,7 +1,7 @@
 // Convertit Lexique383.tsv en index compact pour Scriba.
 // Usage : node tools/build-index.mjs <Lexique383.tsv> <sortie.tsv>
 // Sortie (une ligne par mot) :
-//   mot \t phons(|) \t fréquence \t catégories(, par fréquence) \t verbes \t genre-nombre
+//   mot \t phons(|) \t fréquence \t catégories(, par fréquence) \t verbes \t genre-nombre 	 syllabes (mai-son)
 // verbes : « lemme=ind:pre:3s;sub:pre:3s|lemme2=… » (lemmes par fréquence)
 // genre-nombre : masque hexadécimal 1=ms 2=mp 4=fs 8=fp
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -20,6 +20,7 @@ const C = {
   ortho: col("ortho"), phon: col("phon"), lemme: col("lemme"), cgram: col("cgram"),
   genre: col("genre"), nombre: col("nombre"),
   ff: col("freqfilms2"), fl: col("freqlivres"), infover: col("infover"),
+  syll: col("orthosyll"),
 };
 
 function gnMask(genre, nombre) {
@@ -40,10 +41,11 @@ for (let i = 1; i < lines.length; i++) {
   if (!ortho || !phon || ortho.includes(" ")) continue;
   let w = words.get(ortho);
   if (!w) {
-    w = { phons: new Set(), freq: 0, tags: new Map(), verbs: new Map(), gn: 0 };
+    w = { phons: new Set(), freq: 0, tags: new Map(), verbs: new Map(), gn: 0, syll: "" };
     words.set(ortho, w);
   }
   w.phons.add(phon);
+  if (!w.syll && f[C.syll]) w.syll = f[C.syll];
   const fr = ((parseFloat(f[C.ff]) || 0) + (parseFloat(f[C.fl]) || 0)) / 2;
   w.freq += fr;
   const cg = f[C.cgram];
@@ -69,7 +71,7 @@ for (const [ortho, w] of words) {
   rows.push([
     ortho, [...w.phons].join("|"), w.freq.toFixed(2),
     [...w.tags].sort((a, b) => b[1] - a[1]).map(([t]) => t).join(","),
-    verbs, w.gn.toString(16),
+    verbs, w.gn.toString(16), w.syll,
   ].join("\t"));
 }
 mkdirSync(dirname(out), { recursive: true });

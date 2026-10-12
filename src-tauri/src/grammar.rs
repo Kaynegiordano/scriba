@@ -333,8 +333,15 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             if let Some(best) = accents.first() {
                 let unique = accents.len() == 1;
                 fix(best.word.clone(), format!("Attention aux accents : « {} ».", best.word), "orthographe", unique);
-            } else if let Some(sure) = lex.confident(lower) {
+            } else if let Some(sure) = lex.confident(lower, &hint(lex, &toks, i)) {
                 fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", true);
+            } else if let Some(sure) = liaison(lex, prev, lower).and_then(|w| lex.confident(w, &hint(lex, &toks, i))) {
+                fix(
+                    sure.clone(),
+                    format!("On entend la liaison, mais on ne l'écrit pas : « {} {sure} ».", prev.unwrap_or("")),
+                    "orthographe",
+                    true,
+                );
             } else if let Some(s) = lex.suggest(lower, &hint(lex, &toks, i), 1).first() {
                 // en début de phrase, un prénom (« Paul ») n'est pas une faute :
                 // on ne corrige que si la proposition se prononce pareil
@@ -359,13 +366,13 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 && i > 0
                 && lex.lookup(&toks[i - 1].lower).is_some_and(|p| p.top_tag() == "VER" && p.is_finite()) =>
             {
-                fix("à".into(), "On ne peut pas dire « avait » ici : c'est la préposition « à ».".into(), "homophone", false);
+                fix("à".into(), "On ne peut pas dire « avait » ici : c'est la préposition « à ».".into(), "homophone", true);
                 continue;
             }
             "et" if matches!(prev, Some("il" | "elle" | "on" | "c'" | "ce"))
                 && next_entry.is_some_and(|n| n.top_tag() == "ADJ" || n.is_participle()) =>
             {
-                fix("est".into(), "On peut dire « il était » : c'est le verbe être, « est ».".into(), "homophone", false);
+                fix("est".into(), "On peut dire « il était » : c'est le verbe être, « est ».".into(), "homophone", true);
                 continue;
             }
             "son" if matches!(prev, Some("ils" | "elles")) => {
@@ -381,11 +388,11 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 continue;
             }
             "c'" if matches!(prev, Some("il" | "elle" | "on")) => {
-                fix("s'".into(), "« il s'est… » : c'est « se », le verbe est pronominal.".into(), "homophone", false);
+                fix("s'".into(), "« il s'est… » : c'est « se », le verbe est pronominal.".into(), "homophone", true);
                 continue;
             }
             "sa" if next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_finite()) => {
-                fix("ça".into(), "On peut dire « cela » : on écrit « ça ».".into(), "homophone", false);
+                fix("ça".into(), "On peut dire « cela » : on écrit « ça ».".into(), "homophone", true);
                 continue;
             }
             "peu" if matches!(subj, Some((1..=3, _))) => {
@@ -407,16 +414,16 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                     target.into(),
                     format!("Devant un verbe, c'est « {who} » + « a » (avoir) : « {target} »."),
                     "homophone",
-                    false,
+                    true,
                 );
                 continue;
             }
             "se" if next_entry.is_some_and(|n| n.top_tag() == "NOM" && n.verbs.is_empty() && n.gn & SING != 0) => {
-                fix("ce".into(), "Devant un nom, on écrit « ce » (ce chat, ce matin).".into(), "homophone", false);
+                fix("ce".into(), "Devant un nom, on écrit « ce » (ce chat, ce matin).".into(), "homophone", true);
                 continue;
             }
             "leur" if next_entry.is_some_and(|n| n.top_tag() == "NOM" && n.gn != 0 && n.gn & SING == 0) => {
-                fix("leurs".into(), "Devant un nom au pluriel, « leur » prend un -s.".into(), "accord", false);
+                fix("leurs".into(), "Devant un nom au pluriel, « leur » prend un -s.".into(), "accord", true);
                 continue;
             }
             _ => {}
@@ -474,7 +481,34 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                         let who = if who == "j" { "je" } else { who };
                         ending_tip(p, if who.is_empty() { pronoun(p) } else { who })
                     };
-                    fix(target.to_string(), tip, "accord", noun_subj.is_none());
+                    let sure = match noun_subj {
+                        None => true,
+                        Some((p, k)) => lex.lookup(&toks[k].lower).is_some_and(|n| {
+                            if p == 6 { n.gn & PLUR != 0 } else { n.gn & SING != 0 }
+                        }),
+                    };
+                    fix(target.to_string(), tip, "accord", sure);
+                    continue;
+                }
+            }
+        }
+
+        // 5 bis. juste après un sujet, un mot qui n'est pas un verbe : son homophone verbe
+        if let Some((p, k)) = subj {
+            if e.verbs.is_empty() && !matches!(e.top_tag(), "PRO" | "CON" | "PRE") {
+                let verb = lex
+                    .homophones(e)
+                    .into_iter()
+                    .find(|h| h.has_person(p) && matches!(h.top_tag(), "VER" | "AUX"));
+                if let Some(h) = verb {
+                    let who = toks[k].lower.trim_end_matches('\'');
+                    let who = if who == "j" { "je" } else { who };
+                    fix(
+                        h.word.clone(),
+                        format!("Après « {who} », il faut un verbe conjugué : « {} ».", h.word),
+                        "homophone",
+                        true,
+                    );
                     continue;
                 }
             }
@@ -520,6 +554,21 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
     out
 }
 
+/// « les zamis » : le son de liaison a été écrit au début du mot. Renvoie le mot sans lui.
+fn liaison<'a>(lex: &Lexicon, prev: Option<&str>, word: &'a str) -> Option<&'a str> {
+    const Z: &[&str] = &[
+        "les", "des", "ces", "mes", "tes", "ses", "nos", "vos", "leurs", "aux", "deux", "trois", "six", "dix",
+        "nous", "vous", "ils", "elles", "chez", "très", "quelques", "plusieurs", "mes", "dans", "sans",
+    ];
+    const N: &[&str] = &["un", "on", "en", "mon", "ton", "son", "aucun", "bien", "rien"];
+    const T: &[&str] = &["petit", "grand", "quand", "est", "sont", "ont", "fait", "tout"];
+    let prev = prev?;
+    let rest = word.strip_prefix('z').filter(|_| Z.contains(&prev))
+        .or_else(|| word.strip_prefix('n').filter(|_| N.contains(&prev)))
+        .or_else(|| word.strip_prefix('t').filter(|_| T.contains(&prev)))?;
+    (rest.chars().count() >= 2 && lex.lookup(word).is_none()).then_some(rest)
+}
+
 /// Le mot accordé (féminin, pluriel) qui existe dans le dictionnaire.
 fn agree(lex: &Lexicon, w: &str, need: u8) -> Option<String> {
     let mut c: Vec<String> = Vec::new();
@@ -548,32 +597,49 @@ fn agree(lex: &Lexicon, w: &str, need: u8) -> Option<String> {
     c.into_iter().find(|x| lex.lookup(x).is_some_and(|e| e.gn & need != 0))
 }
 
-/// La correction à appliquer toute seule au mot qui vient de se terminer
-/// (celui juste avant `term`), si elle est sûre. `mode` : voir `custom`.
-pub fn auto_fix(lex: &Lexicon, sentence: &[char], term: char, mode: u8) -> Option<Correction> {
+/// Jusqu'où on revient en arrière pour corriger un mot que la suite de la phrase éclaire.
+const LOOK_BACK: usize = 60;
+
+fn glued(sentence: &[char], start: usize) -> bool {
+    start > 0 && !matches!(sentence[start - 1], ' ' | '\u{a0}' | '(' | '«' | '"' | '\'' | '’' | '-')
+}
+
+/// Les corrections à appliquer toutes seules quand un mot se termine (juste avant `term`) :
+/// celle du mot lui-même, et celles des mots précédents que ce mot vient confirmer
+/// (« il commence a manger » : le « a » devient « à » quand « manger » est tapé).
+/// Triées dans l'ordre de la phrase, sans chevauchement. `mode` : voir `custom`.
+pub fn auto_fixes(lex: &Lexicon, sentence: &[char], term: char, mode: u8) -> Vec<Correction> {
     if mode == custom::OFF {
-        return None;
+        return Vec::new();
     }
     let end = sentence.len();
     let word_len = sentence.iter().rev().take_while(|c| c.is_alphabetic()).count();
     if word_len == 0 || word_len > 40 {
-        return None;
+        return Vec::new();
     }
-    // un mot collé à autre chose (adresse, nom de fichier, mot de passe) : on n'y touche pas
-    if end > word_len && !matches!(sentence[end - word_len - 1], ' ' | '\u{a0}' | '(' | '«' | '"' | '\'' | '’') {
-        return None;
+    // le mot qui se termine est collé à autre chose (adresse, fichier, mot de passe) : on ne fait rien
+    if glued(sentence, end - word_len) {
+        return Vec::new();
     }
     let mut chars = sentence.to_vec();
     chars.push(term);
-    let c = check(lex, &chars).into_iter().find(|c| c.end == end && c.auto)?;
-    if mode < custom::FULL && c.kind != "orthographe" {
-        return None;
-    }
-    // sigles et mots en majuscules (SMS, USB) : jamais
-    if c.original.chars().count() > 1 && c.original.chars().all(|ch| !ch.is_lowercase()) {
-        return None;
-    }
-    Some(c)
+    let mut out: Vec<Correction> = check(lex, &chars)
+        .into_iter()
+        .filter(|c| c.auto && end - c.start <= LOOK_BACK)
+        .filter(|c| mode == custom::FULL || c.kind == "orthographe")
+        .filter(|c| !glued(sentence, c.start))
+        // sigles et mots en majuscules (SMS, USB) : jamais
+        .filter(|c| !(c.original.chars().count() > 1 && c.original.chars().all(|ch| !ch.is_lowercase())))
+        .collect();
+    out.sort_by_key(|c| c.start);
+    out.dedup_by(|b, a| b.start < a.end);
+    out
+}
+
+/// La correction du seul mot qui vient de se terminer (pour les tests).
+#[cfg(test)]
+pub fn auto_fix(lex: &Lexicon, sentence: &[char], term: char, mode: u8) -> Option<Correction> {
+    auto_fixes(lex, sentence, term, mode).into_iter().find(|c| c.end == sentence.len())
 }
 
 #[cfg(test)]

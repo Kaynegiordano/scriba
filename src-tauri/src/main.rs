@@ -185,6 +185,13 @@ fn show_conj(app: &AppHandle, verb: &str) {
         .build();
 }
 
+/// « a, mange » -> « à, mangent » pour la pastille.
+fn pairs_view(pairs: &[(String, String, &'static str)]) -> (String, String) {
+    let from: Vec<&str> = pairs.iter().map(|p| p.0.as_str()).collect();
+    let to: Vec<&str> = pairs.iter().map(|p| p.1.as_str()).collect();
+    (from.join(", "), to.join(", "))
+}
+
 /// Respecte la casse tapée : « Mezon » -> « Maison », « MEZON » -> « MAISON ».
 fn match_case(typed: &str, word: &str) -> String {
     let n = typed.chars().count();
@@ -319,43 +326,37 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
             }
             Msg::Auto(a) => {
-                // le mot est à la fin de la phrase ; l'espace (ou la ponctuation) avalée est retapée avec lui
-                let erase = a.original.chars().count();
-                let text = format!("{}{}", a.replacement, a.term);
-                hook::set_tail(erase, &text, false);
-                inject::replace(erase, &text);
-                let keep = sentence.len().saturating_sub(erase);
+                // on retape depuis le premier mot corrigé ; l'espace (ou la ponctuation) avalée est retapée aussi
+                hook::set_tail(a.erase, &a.text, false);
+                inject::replace(a.erase, &a.text);
+                let keep = sentence.len().saturating_sub(a.erase);
                 sentence.truncate(keep);
-                sentence.extend(text.chars());
-                let _ = app.emit(
-                    "auto",
-                    Notice { from: a.original.clone(), to: a.replacement.clone(), reason: a.reason.clone(), undone: false },
-                );
+                sentence.extend(a.text.chars());
+                let (from, to) = pairs_view(&a.pairs);
+                let _ = app.emit("auto", Notice { from, to, reason: a.reason.clone(), undone: false });
                 hook::set_last_auto(Some(a));
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
                 hook::finish_hold();
             }
             Msg::Undo(a) => {
-                // Retour arrière juste après une correction : on remet le mot de l'élève, et on s'en souvient
-                let erase = a.replacement.chars().count() + 1;
-                hook::set_tail(erase, &a.original, false);
-                inject::replace(erase, &a.original);
+                // Retour arrière juste après une correction : on remet ce que l'élève avait tapé, et on s'en souvient
+                let erase = a.text.chars().count();
+                hook::set_tail(erase, &a.undo, false);
+                inject::replace(erase, &a.undo);
                 let keep = sentence.len().saturating_sub(erase);
                 sentence.truncate(keep);
-                sentence.extend(a.original.chars());
-                if a.kind == "orthographe" {
-                    custom::add_word(&a.original);
-                } else {
-                    custom::add_ignore(&a.original, &a.replacement);
+                sentence.extend(a.undo.chars());
+                for (orig, repl, kind) in &a.pairs {
+                    if *kind == "orthographe" {
+                        custom::add_word(orig);
+                    } else {
+                        custom::add_ignore(orig, repl);
+                    }
                 }
+                let (to, from) = pairs_view(&a.pairs);
                 let _ = app.emit(
                     "auto",
-                    Notice {
-                        from: a.replacement.clone(),
-                        to: a.original.clone(),
-                        reason: "D'accord, je ne le corrigerai plus.".into(),
-                        undone: true,
-                    },
+                    Notice { from, to, reason: "D'accord, je ne le corrigerai plus.".into(), undone: true },
                 );
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
                 hook::finish_hold();

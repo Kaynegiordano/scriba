@@ -38,11 +38,14 @@ pub enum Msg {
 
 #[derive(Clone)]
 pub struct AutoFix {
-    pub original: String,
-    pub replacement: String,
-    /// la ponctuation ou l'espace qui a terminé le mot
-    pub term: char,
-    pub kind: &'static str,
+    /// caractères à effacer (depuis le premier mot corrigé jusqu'au curseur)
+    pub erase: usize,
+    /// ce qu'on retape : la fin de phrase corrigée + l'espace ou la ponctuation
+    pub text: String,
+    /// ce que l'élève avait tapé (sans l'espace finale), pour annuler
+    pub undo: String,
+    /// (avant, après, type) pour chaque mot corrigé
+    pub pairs: Vec<(String, String, &'static str)>,
     pub reason: String,
 }
 
@@ -193,8 +196,25 @@ fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
     if focus_is_password(fg) {
         return None;
     }
-    let c = crate::grammar::auto_fix(lex, &st.sentence, term, mode)?;
-    Some(AutoFix { original: c.original, replacement: c.replacement, term, kind: c.kind, reason: c.reason })
+    let fixes = crate::grammar::auto_fixes(lex, &st.sentence, term, mode);
+    let start = fixes.first()?.start;
+    let sentence = &st.sentence;
+    let mut text = String::new();
+    let mut pos = start;
+    for c in &fixes {
+        text.extend(&sentence[pos..c.start]);
+        text.push_str(&c.replacement);
+        pos = c.end;
+    }
+    text.extend(&sentence[pos..]);
+    text.push(term);
+    Some(AutoFix {
+        erase: sentence.len() - start,
+        text,
+        undo: sentence[start..].iter().collect(),
+        pairs: fixes.iter().map(|c| (c.original.clone(), c.replacement.clone(), c.kind)).collect(),
+        reason: fixes.last().map(|c| c.reason.clone()).unwrap_or_default(),
+    })
 }
 
 fn begin_hold() {
