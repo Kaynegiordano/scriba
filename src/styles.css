@@ -126,7 +126,15 @@ body,
 .sugg:active {
   transform: scale(0.97);
 }
-
+.picto {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fff;
+  padding: 2px;
+}
 .fk {
   font-size: 10px;
   font-weight: 700;

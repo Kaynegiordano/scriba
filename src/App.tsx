@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { speak } from "./speech";
 
-type Suggestion = { word: string; tag: string; info: string };
+type Suggestion = { word: string; tag: string; info: string; picto: number | null };
 type Fix = { from: string; to: string; reason: string; kind: string; learnable: boolean };
 type Notice = { from: string; to: string; reason: string; undone: boolean };
 type Payload = { typed: string; items: Suggestion[]; fix: Fix | null };
-type Settings = { auto: number; audio: boolean };
+type Settings = { auto: number; audio: boolean; pictos: number };
 
 const KIND_LABEL: Record<string, string> = {
   orthographe: "Orthographe",
@@ -22,6 +22,10 @@ export default function App() {
   const [fix, setFix] = useState<Fix | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [audio, setAudio] = useState(false);
+  const [pictoMode, setPictoMode] = useState(2);
+  // images déjà connues : data URL (dans Scriba), adresse arasaac.org, ou null (pas d'image)
+  const images = useRef(new Map<number, string | null>());
+  const [, redraw] = useState(0);
 
   useEffect(() => {
     const off = listen<Payload>("suggestions", (e) => {
@@ -30,8 +34,14 @@ export default function App() {
       setFix(e.payload.fix);
     });
     const offAuto = listen<Notice>("auto", (e) => setNotice(e.payload));
-    invoke<Settings>("get_settings").then((s) => setAudio(s.audio));
-    const offSettings = listen<Settings>("settings", (e) => setAudio(e.payload.audio));
+    const apply = (s: Settings) => {
+      setAudio(s.audio);
+      setPictoMode(s.pictos);
+      images.current.clear();
+      redraw((n) => n + 1);
+    };
+    invoke<Settings>("get_settings").then(apply);
+    const offSettings = listen<Settings>("settings", (e) => apply(e.payload));
     return () => {
       off.then((f) => f());
       offAuto.then((f) => f());
@@ -47,6 +57,19 @@ export default function App() {
   }, [notice]);
 
   const keep = (e: React.MouseEvent) => e.preventDefault();
+
+  function picto(id: number | null): string | null {
+    if (id === null || pictoMode === 0) return null;
+    const known = images.current.get(id);
+    if (known !== undefined) return known;
+    images.current.set(id, null);
+    invoke<string | null>("picto_data", { id }).then((url) => {
+      const remote = `https://static.arasaac.org/pictograms/${id}/${id}_300.png`;
+      images.current.set(id, url ?? (pictoMode === 2 ? remote : null));
+      redraw((n) => n + 1);
+    });
+    return null;
+  }
 
   return (
     <div className="bar">
@@ -109,6 +132,12 @@ export default function App() {
             title={it.info || it.tag}
           >
             <span className="fk">F{i + 1}</span>
+            {(() => {
+              const src = picto(it.picto);
+              return src ? (
+                <img className="picto" src={src} alt="" draggable={false} title="Pictogramme ARASAAC (Sergio Palao) · CC BY-NC-SA" />
+              ) : null;
+            })()}
             <span className="text">
               <span className="w">{it.word}</span>
               <span className="meta">{it.info || it.tag}</span>

@@ -1,6 +1,7 @@
 //! Réglages et dictionnaire personnel, enregistrés dans %APPDATA%\Scriba :
 //!   settings.txt      auto=0|1|2   (0 = aucune, 1 = orthographe, 2 = orthographe + grammaire)
 //!                     audio=0|1    lecture à voix haute (désactivée par défaut)
+//!                     pictos=0|1|2 pictogrammes (0 = non, 1 = ceux du PC, 2 = + Internet pour les mots rares)
 //!   dictionnaire.txt  un mot par ligne (mot correct) ou « faux>juste » (correction refusée)
 
 use std::collections::HashSet;
@@ -15,6 +16,7 @@ pub const FULL: u8 = 2;
 
 static MODE: AtomicU8 = AtomicU8::new(FULL);
 static AUDIO: AtomicBool = AtomicBool::new(false);
+static PICTOS: AtomicU8 = AtomicU8::new(2);
 
 #[derive(Default)]
 struct Custom {
@@ -36,6 +38,11 @@ pub fn load() {
     let Some(d) = dir() else { return };
     if let Ok(t) = std::fs::read_to_string(d.join("settings.txt")) {
         for line in t.lines() {
+            if let Some(v) = line.strip_prefix("pictos=") {
+                if let Ok(m) = v.trim().parse::<u8>() {
+                    PICTOS.store(m.min(2), Ordering::Relaxed);
+                }
+            }
             if let Some(v) = line.strip_prefix("audio=") {
                 AUDIO.store(v.trim() == "1", Ordering::Relaxed);
             }
@@ -80,13 +87,22 @@ pub fn set_audio(on: bool) {
     save();
 }
 
+pub fn pictos() -> u8 {
+    PICTOS.load(Ordering::Relaxed)
+}
+
+pub fn set_pictos(m: u8) {
+    PICTOS.store(m.min(2), Ordering::Relaxed);
+    save();
+}
+
 fn save() {
     if cfg!(test) {
         return;
     }
     if let Some(d) = dir() {
         let _ = std::fs::create_dir_all(&d);
-        let _ = std::fs::write(d.join("settings.txt"), format!("auto={}\naudio={}\n", mode(), u8::from(audio())));
+        let _ = std::fs::write(d.join("settings.txt"), format!("auto={}\naudio={}\npictos={}\n", mode(), u8::from(audio()), pictos()));
     }
 }
 

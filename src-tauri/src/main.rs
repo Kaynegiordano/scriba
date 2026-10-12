@@ -10,6 +10,7 @@ mod hook;
 mod inject;
 mod lexicon;
 mod phonetics;
+mod pictos;
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -94,11 +95,22 @@ fn apply_fix(tx: State<Tx>) {
 struct Settings {
     auto: u8,
     audio: bool,
+    pictos: u8,
+}
+
+fn settings() -> Settings {
+    Settings { auto: custom::mode(), audio: custom::audio(), pictos: custom::pictos() }
+}
+
+/// L'image d'un pictogramme si elle est dans Scriba (sinon la barre la demande à arasaac.org).
+#[tauri::command]
+fn picto_data(id: u32) -> Option<String> {
+    pictos::data_url(id)
 }
 
 #[tauri::command]
 fn get_settings() -> Settings {
-    Settings { auto: custom::mode(), audio: custom::audio() }
+    settings()
 }
 
 #[tauri::command]
@@ -111,7 +123,7 @@ fn apply_audio(app: &AppHandle, on: bool) {
     if let Some(item) = AUDIO_ITEM.get() {
         let _ = item.set_checked(on);
     }
-    let _ = app.emit("settings", Settings { auto: custom::mode(), audio: on });
+    let _ = app.emit("settings", settings());
 }
 
 #[tauri::command]
@@ -199,6 +211,27 @@ fn grab_text() -> String {
     hook::current_sentence()
 }
 
+/// Windows refuse le premier plan à une fenêtre ouverte par un raccourci global :
+/// on s'attache un instant au fil de la fenêtre active pour le lui prendre.
+fn bring_to_front(w: &tauri::WebviewWindow) {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    let Ok(h) = w.hwnd() else { return };
+    let h = h.0 as HWND;
+    unsafe {
+        let mut msg: MSG = std::mem::zeroed();
+        PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE); // ce fil a besoin d'une file de messages
+        let fg = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+        let me = GetCurrentThreadId();
+        let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, 1) != 0;
+        BringWindowToTop(h);
+        SetForegroundWindow(h);
+        if attached {
+            AttachThreadInput(me, fg_thread, 0);
+        }
+    }
+}
+
 fn show_reader(app: &AppHandle, text: String) {
     *READING.lock().unwrap() = text.clone();
     if let Some(w) = app.get_webview_window("lire") {
@@ -206,9 +239,10 @@ fn show_reader(app: &AppHandle, text: String) {
         let _ = w.show();
         let _ = w.set_focus();
         let _ = w.emit_to("lire", "reader-text", text);
+        bring_to_front(&w);
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "lire", WebviewUrl::App("index.html#lire".into()))
+    let built = WebviewWindowBuilder::new(app, "lire", WebviewUrl::App("index.html#lire".into()))
         .title("Scriba — Lecture")
         .inner_size(960.0, 720.0)
         .min_inner_size(560.0, 400.0)
@@ -216,6 +250,9 @@ fn show_reader(app: &AppHandle, text: String) {
         .center()
         .focused(true)
         .build();
+    if let Ok(w) = built {
+        bring_to_front(&w);
+    }
 }
 
 #[tauri::command]
@@ -304,10 +341,11 @@ fn show_conj(app: &AppHandle, verb: &str) {
         if !verb.is_empty() {
             let _ = w.emit_to("conj", "conj-open", verb.to_string());
         }
+        bring_to_front(&w);
         return;
     }
     let url = format!("index.html#conj={}", verb.replace(' ', "%20"));
-    let _ = WebviewWindowBuilder::new(app, "conj", WebviewUrl::App(url.into()))
+    let built = WebviewWindowBuilder::new(app, "conj", WebviewUrl::App(url.into()))
         .title("Scriba — Conjugaison")
         .inner_size(900.0, 700.0)
         .min_inner_size(560.0, 420.0)
@@ -315,6 +353,9 @@ fn show_conj(app: &AppHandle, verb: &str) {
         .center()
         .focused(true)
         .build();
+    if let Ok(w) = built {
+        bring_to_front(&w);
+    }
 }
 
 /// « a, mange » -> « à, mangent » pour la pastille.
@@ -394,6 +435,10 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
             lex.suggest(typed, &h, max)
         };
         for s in items.iter_mut() {
+            // pictogramme pour les mots « pleins » (pas pour le, de, il…)
+            if matches!(s.tag, "nom" | "verbe" | "adj." | "adv.") {
+                s.picto = pictos::id_for(lex, &s.word);
+            }
             s.word = match_case(typed, &s.word);
         }
         hook::CORRECTION.store(fix.is_some(), Ordering::Relaxed);
@@ -529,7 +574,7 @@ fn main() {
         .manage(Tx(tx))
         .invoke_handler(tauri::generate_handler![
             pick, apply_fix, learn, toggle, open_conj, conj_table, conj_search, get_settings, set_audio, open_reader,
-            reading_text, syllabify, clipboard_text
+            reading_text, syllabify, clipboard_text, picto_data
         ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("fenêtre principale");
@@ -578,9 +623,17 @@ fn main() {
             let read_item = MenuItem::with_id(app, "read", "Lecture   Ctrl+Alt+R", true, None::<&str>)?;
             let audio_item = CheckMenuItem::with_id(app, "audio", "Lecture audio des mots", true, custom::audio(), None::<&str>)?;
             let _ = AUDIO_ITEM.set(audio_item.clone());
+            let p = custom::pictos();
+            let picto_items = [
+                CheckMenuItem::with_id(app, "picto0", "Désactivés", true, p == 0, None::<&str>)?,
+                CheckMenuItem::with_id(app, "picto1", "Seulement ceux du PC", true, p == 1, None::<&str>)?,
+                CheckMenuItem::with_id(app, "picto2", "Avec Internet pour les mots rares", true, p == 2, None::<&str>)?,
+            ];
+            let picto_menu =
+                Submenu::with_items(app, "Pictogrammes", true, &[&picto_items[0], &picto_items[1], &picto_items[2]])?;
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &conj_item, &read_item, &auto_menu, &audio_item, &quit_item],
+                &[&toggle_item, &conj_item, &read_item, &auto_menu, &picto_menu, &audio_item, &quit_item],
             )?;
             let menu_tx = tray_tx.clone();
             TrayIconBuilder::new()
@@ -599,6 +652,14 @@ fn main() {
                         let _ = menu_tx.send(Msg::Read);
                     }
                     "audio" => apply_audio(app, !custom::audio()),
+                    id @ ("picto0" | "picto1" | "picto2") => {
+                        let m = id.as_bytes()[5] - b'0';
+                        custom::set_pictos(m);
+                        for (i, item) in picto_items.iter().enumerate() {
+                            let _ = item.set_checked(i as u8 == m);
+                        }
+                        let _ = app.emit("settings", settings());
+                    }
                     id @ ("auto0" | "auto1" | "auto2") => {
                         let m = id.as_bytes()[4] - b'0';
                         custom::set_mode(m);

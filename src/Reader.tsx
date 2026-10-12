@@ -31,7 +31,7 @@ const DEFAULTS: Prefs = {
   rate: 0.95,
 };
 
-const FONTS = ["Verdana", "Arial", "Segoe UI", "Comic Sans MS", "Century Gothic", "Tahoma", "OpenDyslexic"];
+const FONTS = ["OpenDyslexic", "Verdana", "Arial", "Segoe UI", "Comic Sans MS", "Century Gothic", "Tahoma"];
 const THEMES: [Prefs["theme"], string][] = [
   ["blanc", "Blanc"],
   ["creme", "Crème"],

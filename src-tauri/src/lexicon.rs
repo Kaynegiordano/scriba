@@ -118,6 +118,8 @@ pub struct Suggestion {
     pub tag: &'static str,
     /// pour un verbe : « manger · imparfait (ils) »
     pub info: String,
+    /// numéro du pictogramme ARASAAC (rempli par la barre)
+    pub picto: Option<u32>,
 }
 
 /// Ce que la phrase attend au mot en cours (calculé par `grammar::hint`).
@@ -623,7 +625,7 @@ impl Lexicon {
             .take(max)
             .map(|(idx, _)| {
                 let e = &self.entries[idx as usize];
-                Suggestion { word: e.word.clone(), tag: e.label, info: e.info.clone() }
+                Suggestion { word: e.word.clone(), tag: e.label, info: e.info.clone(), picto: None }
             })
             .collect()
     }
