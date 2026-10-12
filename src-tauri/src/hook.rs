@@ -68,6 +68,8 @@ struct State {
     paused: bool,
     /// application d'écriture : la seule où la correction automatique agit
     writing: bool,
+    /// la correction automatique a le droit de s'appliquer dans cette fenêtre
+    corrects: bool,
     /// dernière correction automatique, annulable par Retour arrière
     last_auto: Option<AutoFix>,
 }
@@ -79,6 +81,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     last_fg: 0,
     paused: false,
     writing: false,
+    corrects: false,
     last_auto: None,
 });
 
@@ -98,6 +101,13 @@ const WRITING_APPS: &[&str] = &[
     "opera.exe", "powerpnt.exe", "excel.exe", "onenote.exe", "outlook.exe", "olk.exe", "soffice.bin",
     "swriter.exe", "soffice.exe", "teams.exe", "ms-teams.exe", "discord.exe", "whatsapp.exe", "telegram.exe",
     "slack.exe", "thunderbird.exe",
+];
+
+/// Là où on ne corrige jamais seul : terminaux et éditeurs de code (une commande ou un programme n.est pas du français).
+const NO_AUTO_APPS: &[&str] = &[
+    "windowsterminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "openconsole.exe",
+    "bash.exe", "wsl.exe", "mintty.exe", "putty.exe", "code.exe", "cursor.exe", "devenv.exe", "idea64.exe",
+    "pycharm64.exe", "webstorm64.exe", "sublime_text.exe", "notepad++.exe",
 ];
 
 fn exe_name(hwnd: HWND) -> String {
@@ -440,7 +450,10 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     if fg != st.last_fg {
         st.last_fg = fg;
         st.paused = looks_like_game(fg as HWND);
-        st.writing = WRITING_APPS.contains(&exe_name(fg as HWND).as_str());
+        let exe = exe_name(fg as HWND);
+        st.writing = WRITING_APPS.contains(&exe.as_str());
+        // une fenêtre dont on ne peut pas lire le nom est souvent lancée en administrateur : la frappe n'y passe pas
+        st.corrects = st.writing || (!exe.is_empty() && !NO_AUTO_APPS.contains(&exe.as_str()));
         st.last_auto = None;
         clear(&mut st);
         publish(&st);
@@ -534,7 +547,7 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
 
     let dead = st.dead.take();
     if let Some(c) = ch {
-        if is_terminator(c) && st.writing && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
+        if is_terminator(c) && st.corrects && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
             if let Some(fix) = auto_candidate(&st, fg, c) {
                 begin_hold();
                 send(Msg::Auto(fix));
