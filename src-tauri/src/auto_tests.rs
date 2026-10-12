@@ -316,3 +316,41 @@ fn sans_accents() {
     }
 }
 
+
+/// Frappe réelle d'une phrase : chaque mot est corrigé (ou non) avant de taper le suivant.
+fn frappe(phrase: &str) -> String {
+    let mut typed: Vec<char> = Vec::new();
+    for w in phrase.split(' ') {
+        typed.extend(w.chars());
+        for c in crate::grammar::auto_fixes(lex(), &typed, ' ', custom::FULL).into_iter().rev() {
+            typed.splice(c.start..c.end, c.replacement.chars());
+        }
+        typed.push(' ');
+    }
+    typed.into_iter().collect::<String>().trim_end().to_string()
+}
+
+#[test]
+fn comme_ca_se_prononce() {
+    let cas = [
+        ("voila voila ça ne corrige rien encore c'est chiant", "voilà voilà ça ne corrige rien encore c'est chiant"),
+        ("je fé plein de faute dorthograph", "je fais plein de faute d'orthographe"),
+        ("jai fini", "j'ai fini"),
+        ("je vé a la mezon", "je vais à la maison"),
+        ("tu fé quoi", "tu fais quoi"),
+        ("il fé beau", "il fait beau"),
+        ("je pe pas venir", "je peux pas venir"),
+        ("je sui fatigué", "je suis fatigué"),
+        ("lecole est fermé", "l'école est fermé"),
+    ];
+    let mut ko = Vec::new();
+    for (entree, voulu) in cas {
+        let got = frappe(entree);
+        println!("FRAPPE {entree}
+    -> {got}");
+        if got != voulu {
+            ko.push((entree, got));
+        }
+    }
+    println!("ECARTS {ko:?}");
+}

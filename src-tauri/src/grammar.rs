@@ -239,6 +239,9 @@ pub fn hint(lex: &Lexicon, toks: &[Token], i: usize) -> Hint {
         participle: aux_before(lex, toks, i).is_some(),
         infinitive: wants_infinitive(lex, toks, i).is_some(),
         number: det_number(toks, i, lex).map(|(n, _)| n),
+        to: toks
+            .get(i + 1)
+            .is_some_and(|n| n.sent == toks[i].sent && matches!(n.lower.as_str(), "à" | "a" | "au" | "aux" | "en" | "chez" | "dans")),
     }
 }
 
@@ -358,6 +361,34 @@ fn cue_choice(lex: &Lexicon, toks: &[Token], i: usize) -> Option<&'static str> {
         return Some("pêché");
     }
     Some(best)
+}
+
+/// « jai » -> « j'ai », « dorthograph » -> « d'orthographe » : l'apostrophe oubliée devant une voyelle.
+fn missing_apostrophe(lex: &Lexicon, word: &str) -> Option<String> {
+    let first = word.chars().next()?;
+    if !matches!(first, 'd' | 'l' | 'j' | 'm' | 'n' | 's' | 't' | 'c') {
+        return None;
+    }
+    let rest: String = word.chars().skip(1).collect();
+    if !rest.starts_with(['a', 'e', 'é', 'è', 'ê', 'i', 'o', 'u', 'h', 'y', 'â', 'î', 'ô', 'û']) {
+        return None;
+    }
+    let found = if let Some(e) = lex.lookup(&rest) {
+        // « jai », « lami » : le reste doit être un vrai mot (pas un simple morceau)
+        if rest.chars().count() < 2 { return None; }
+        e.word.clone()
+    } else if rest.chars().count() >= 4 {
+        lex.confident(&rest, &Hint::default())?
+    } else {
+        return None;
+    };
+    // « j' », « m' », « t' », « s' », « n' », « c' » : seulement devant un verbe ou un pronom ; « l' », « d' » : partout
+    if matches!(first, 'j' | 'm' | 't' | 's' | 'n' | 'c')
+        && !lex.lookup(&found).is_some_and(|e| !e.verbs.is_empty() || e.top_tag() == "PRO")
+    {
+        return None;
+    }
+    Some(format!("{first}'{found}"))
 }
 
 /// Verbes suivis de la préposition « à » (« il est allé à l'école »).
@@ -499,6 +530,13 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             if let Some(best) = accents.first() {
                 let unique = accents.len() == 1;
                 fix(best.word.clone(), format!("Attention aux accents : « {} ».", best.word), "orthographe", unique);
+            } else if let Some(fixed) = missing_apostrophe(lex, lower) {
+                fix(
+                    fixed.clone(),
+                    format!("Il manque une apostrophe : « {fixed} »."),
+                    "orthographe",
+                    true,
+                );
             } else if let Some(sure) = lex.confident(lower, &hint(lex, &toks, i)) {
                 fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", true);
             } else if let Some(sure) = liaison(lex, prev, lower).and_then(|w| lex.confident(w, &hint(lex, &toks, i))) {
@@ -540,6 +578,10 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 }) =>
             {
                 fix("à".into(), "Après ce verbe, c'est la préposition « à » (on ne peut pas dire « avait »).".into(), "homophone", true);
+                continue;
+            }
+            "voila" => {
+                fix("voilà".into(), "« voilà » s'écrit avec un accent grave.".into(), "orthographe", true);
                 continue;
             }
             "sur" if {

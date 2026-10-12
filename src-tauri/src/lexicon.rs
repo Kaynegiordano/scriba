@@ -133,6 +133,8 @@ pub struct Hint {
     pub infinitive: bool,
     /// après un déterminant : SING ou PLUR
     pub number: Option<u8>,
+    /// le mot suivant est « à », « au », « en », « chez »… (« je vais à la plage »)
+    pub to: bool,
 }
 
 pub struct Lexicon {
@@ -527,6 +529,9 @@ impl Lexicon {
                 s -= 3.0;
             }
         }
+        if hint.to && ALLER.contains(&&*e.word) {
+            s += 3.0;
+        }
         if let Some(n) = hint.number {
             if matches!(e.top_tag(), "NOM" | "ADJ") && e.gn != 0 {
                 s += if e.gn & n != 0 { 0.8 } else { -1.5 };
@@ -541,7 +546,9 @@ impl Lexicon {
     pub fn confident(&self, typed: &str, hint: &Hint) -> Option<String> {
         let folded = fold(typed);
         let letters = folded.chars().count();
-        if letters < 3 {
+        // un mot de deux lettres (« fé », « pe ») n'est corrigé que si la phrase attend un verbe (« je fé »)
+        let expects_verb = hint.person.is_some() || hint.infinitive || hint.participle;
+        if letters < 2 || (letters == 2 && !expects_verb) {
             return None;
         }
         let mut cands: HashMap<u32, f32> = HashMap::new();
@@ -551,7 +558,14 @@ impl Lexicon {
             for (pk, idx) in range(&self.by_phon, k) {
                 if pk == k {
                     let e = &self.entries[*idx as usize];
-                    cands.insert(*idx, e.weight + Self::adjust(e, hint));
+                    // un mot de deux lettres garde sa première lettre (fé -> fais, pas ia -> ya)
+                    if letters == 2 && e.word.chars().next().map(|c| fold(&c.to_string())) != folded.chars().next().map(|c| c.to_string()) {
+                        continue;
+                    }
+                    // après « je », « il »… : un verbe est attendu, pas un nom
+                    let noun_after_subject =
+                        hint.person.is_some() && !hint.participle && !hint.infinitive && e.verbs.is_empty();
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - if noun_after_subject { 2.5 } else { 0.0 });
                 }
             }
         }
@@ -699,6 +713,12 @@ impl Lexicon {
     }
 }
 
+/// Formes du verbe aller : après « je » + un mot qui se prononce « vé », « à » derrière -> « vais ».
+const ALLER: &[&str] = &[
+    "vais", "vas", "va", "vont", "allons", "allez", "allais", "allait", "allaient", "irai", "iras", "ira", "irons",
+    "irez", "iront", "aille", "ailles", "aillent", "allé", "allés", "allée", "allées", "aller",
+];
+
 fn entries_weight(entries: &[Entry], i: u32) -> f32 {
     entries[i as usize].weight
 }
@@ -783,3 +803,4 @@ pub mod tests {
     }
 
 }
+
