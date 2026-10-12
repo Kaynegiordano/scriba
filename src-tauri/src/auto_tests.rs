@@ -227,3 +227,35 @@ fn mots_rates_corriges_seuls() {
         }
     }
 }
+
+#[test]
+fn etonnants() {
+    for (s, term) in [
+        ("j'ai un iphone", ' '), ("mon iphone", ' '), ("l'iphone", ' '), ("je ne", ' '), ("je ne sais", ' '),
+        ("je n'ai", ' '), ("je ne veux", ' '), ("je ne suis", ' '), ("je ne", '.'), ("ne", ' '), ("je nes", ' '),
+        ("youtube", ' '), ("sur whatsapp", ' '), ("sur tiktok", ' '), ("il joue a fortnite", ' '), ("mon pc", ' '),
+    ] {
+        println!("{s:<24} + {term:?} -> {:?}", auto(s, term, custom::FULL));
+    }
+}
+
+#[test]
+fn mots_a_laisser() {
+    let mut changed = Vec::new();
+    for w in [
+        "mdr", "ptdr", "wesh", "genre", "ouf", "meuf", "kiffer", "chelou", "tkt", "frero", "gamer", "gaming", "skin", "skins",
+        "lol", "stream", "like", "liker", "follow", "story", "reels", "tiktok", "snap", "insta", "gta", "fifa", "mbappe",
+        "messi", "ronaldo", "zelda", "mario", "sonic", "pixel", "pc", "usb", "hdmi", "ram", "ssd", "gpu", "wifi", "ps5",
+        "chatgpt", "gpt", "claude", "ia", "emoji", "twitch", "paypal", "amazon", "uber", "tesla", "lego", "naruto", "goku",
+        "okay", "bref", "daron", "reuf", "relou", "zinzin", "wallah", "bg", "oklm", "jpp", "svp", "stp", "bcp", "pk", "pcq",
+    ] {
+        for sentence in [format!("c'est {w}"), format!("j'ai {w}"), format!("mon {w}")] {
+            if let Some((a, b)) = auto(&sentence, ' ', custom::FULL) {
+                if !changed.contains(&format!("{a}>{b}")) {
+                    changed.push(format!("{a}>{b}"));
+                }
+            }
+        }
+    }
+    println!("CHANGES: {changed:?}");
+}

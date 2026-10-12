@@ -520,11 +520,11 @@ impl Lexicon {
                 }
             }
         }
-        if letters >= 5 {
+        if letters >= 7 {
             let q = folded.as_bytes();
             for (k, idx) in &self.by_ortho {
                 // une faute de lettre compte moins qu'un mot qui se prononce pareil
-                if one_typo(k.as_bytes(), q) && !cands.contains_key(idx) {
+                if k.as_bytes().first() == q.first() && one_typo(k.as_bytes(), q) && !cands.contains_key(idx) {
                     let e = &self.entries[*idx as usize];
                     cands.insert(*idx, e.weight + Self::adjust(e, hint) - 2.5);
                 }
@@ -570,13 +570,20 @@ impl Lexicon {
     /// La meilleure proposition pour un mot inconnu, si elle est nettement devant les autres :
     /// assez sûre pour être appliquée sans demander.
     pub fn guess(&self, typed: &str, hint: &Hint) -> Option<String> {
-        if fold(typed).chars().count() < 4 {
+        // en dessous de 7 lettres, l'argot, les marques et les prénoms ressemblent trop à de vrais mots
+        if fold(typed).chars().count() < 7 {
             return None;
         }
         let ranked = self.rank(typed, hint, 4);
         let (best, score) = *ranked.first()?;
         let word = &self.entries[best as usize].word;
         let best_folded = fold(word);
+        let keys = [key(&phonemes(typed, true)), key(&phonemes(typed, false))];
+        let same_start = best_folded.chars().next() == fold(typed).chars().next();
+        let phon = self.entries[best as usize].phon.as_bytes();
+        if !same_start && !keys.iter().any(|k| k.as_bytes() == phon || levenshtein1(phon, k.as_bytes())) {
+            return None;
+        }
         // le pluriel ou le féminin du même mot n'est pas un concurrent
         let rival = ranked
             .iter()

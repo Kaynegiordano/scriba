@@ -503,7 +503,7 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
 
         // 5 bis. juste après un sujet, un mot qui n'est pas un verbe : son homophone verbe
         if let Some((p, k)) = subj {
-            if e.verbs.is_empty() && !matches!(e.top_tag(), "PRO" | "CON" | "PRE") {
+            if e.verbs.is_empty() && lower.chars().count() > 2 && matches!(e.top_tag(), "NOM" | "ADJ") {
                 let verb = lex
                     .homophones(e)
                     .into_iter()
