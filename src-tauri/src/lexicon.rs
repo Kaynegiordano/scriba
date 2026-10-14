@@ -83,6 +83,8 @@ pub struct Entry {
     info: String,
     /// clé de prononciation (pour trouver les homophones)
     phon: Box<str>,
+    /// prononciation exacte (première variante de Lexique)
+    pron: Box<str>,
     /// syllabes écrites (« mai-son »), vide si inconnues
     pub syll: Box<str>,
 }
@@ -109,6 +111,35 @@ impl Entry {
     pub fn lemma(&self) -> Option<u32> {
         self.verbs.first().map(|(l, _)| *l)
     }
+    /// Une des catégories Lexique du mot (« NOM », « ADJ »…).
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.split(',').any(|t| t.split(':').next() == Some(tag))
+    }
+    /// Fréquence (logarithme).
+    pub fn weight(&self) -> f32 {
+        self.weight
+    }
+}
+
+/// Lexique écrit « soeur », « coeur », « oeil » : on rétablit la ligature (sœur, cœur, œil).
+fn ligature(word: &str) -> String {
+    if !word.contains("oe") {
+        return word.to_string();
+    }
+    let c: Vec<char> = word.chars().collect();
+    let mut out = String::with_capacity(word.len());
+    let mut i = 0;
+    while i < c.len() {
+        let start = i == 0 || !c[i - 1].is_alphabetic();
+        if c[i] == 'o' && c.get(i + 1) == Some(&'e') && (start || matches!(c.get(i + 2), Some('u' | 'i'))) {
+            out.push('œ');
+            i += 2;
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 #[derive(Clone, Serialize)]
@@ -131,8 +162,10 @@ pub struct Hint {
     pub participle: bool,
     /// après « pour », « de », « il va »… : infinitif
     pub infinitive: bool,
-    /// après un déterminant : SING ou PLUR
+    /// après un déterminant : genre-nombre demandé (masque MS/FS/MP/FP)
     pub number: Option<u8>,
+    /// le sujet est un pronom (je, il…) : juste après lui, on attend un verbe
+    pub pronoun: bool,
     /// le mot suivant est « à », « au », « en », « chez »… (« je vais à la plage »)
     pub to: bool,
 }
@@ -312,6 +345,8 @@ impl Lexicon {
             let (Some(word), Some(phons), Some(freq), Some(tags)) = (f.next(), f.next(), f.next(), f.next()) else {
                 continue;
             };
+            let word = ligature(word);
+            let word = word.as_str();
             let verbs_col = f.next().unwrap_or("");
             let gn = u8::from_str_radix(f.next().unwrap_or("0"), 16).unwrap_or(0);
             let syll = f.next().unwrap_or("");
@@ -354,6 +389,7 @@ impl Lexicon {
                 label: tag_label(top, is_verb),
                 info,
                 phon: key(phons.split('|').next().unwrap_or("")).into(),
+                pron: phons.split('|').next().unwrap_or("").into(),
                 syll: syll.into(),
             });
             by_ortho.push((fold(word), idx));
@@ -388,6 +424,7 @@ impl Lexicon {
                 label: "nom",
                 info: String::new(),
                 phon: key(&phonemes(&w, true)).into(),
+                pron: phonemes(&w, true).into(),
                 syll: "".into(),
             });
             by_ortho.push((fold(&w), idx));
@@ -430,20 +467,12 @@ impl Lexicon {
             .map(|e| {
                 let mut s = e.weight + Self::adjust(e, hint);
                 // juste après un sujet (« ça », « il »), un mot qui ne peut pas être un verbe est improbable
-                if hint.person.is_some() && !hint.participle && !hint.infinitive && e.verbs.is_empty() {
+                if Self::verb_expected(hint) && e.verbs.is_empty() {
                     s -= 2.5;
                 }
                 // après « a », « est », « ont »… : un participe passé, pas un nom
                 if hint.participle && e.verbs.is_empty() {
                     s -= 3.5;
-                }
-                // juste après « le », « la », « mon »… : un nom ou un adjectif, pas un verbe
-                if hint.number.is_some() && hint.person.is_none() {
-                    s += match e.top_tag() {
-                        "NOM" | "ADJ" => 2.5,
-                        "VER" | "AUX" => -2.0,
-                        _ => 0.0,
-                    };
                 }
                 (e, s)
             })
@@ -451,8 +480,17 @@ impl Lexicon {
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
         scored.dedup_by(|a, b| a.0.word == b.0.word);
         let best = scored.first()?;
+        // « on sai » : « saï » (un singe) n'est pas un verbe, ce n'est pas l'accent qui manque
+        if Self::verb_expected(hint) && best.0.verbs.is_empty() {
+            return None;
+        }
         let sure = scored.get(1).is_none_or(|next| best.1 - next.1 >= 3.0);
         Some((best.0.word.clone(), sure))
+    }
+
+    /// Juste après un pronom sujet (« je », « il »…), sans auxiliaire : un verbe conjugué est attendu.
+    fn verb_expected(hint: &Hint) -> bool {
+        hint.person.is_some() && hint.pronoun && !hint.participle && !hint.infinitive
     }
 
     /// Les mots qui se prononcent comme `e` (ces / sait / c'est…), du plus courant au moins courant.
@@ -536,6 +574,14 @@ impl Lexicon {
             if matches!(e.top_tag(), "NOM" | "ADJ") && e.gn != 0 {
                 s += if e.gn & n != 0 { 0.8 } else { -1.5 };
             }
+            // juste après « le », « la », « mon »… : un nom ou un adjectif, pas un verbe
+            if hint.person.is_none() && !hint.infinitive {
+                s += match e.top_tag() {
+                    "NOM" | "ADJ" => 2.5,
+                    "VER" | "AUX" => -2.0,
+                    _ => 0.0,
+                };
+            }
         }
         s
     }
@@ -552,7 +598,8 @@ impl Lexicon {
             return None;
         }
         let mut cands: HashMap<u32, f32> = HashMap::new();
-        let mut keys = vec![key(&phonemes(typed, true)), key(&phonemes(typed, false))];
+        let exact = [phonemes(typed, true), phonemes(typed, false)];
+        let mut keys = vec![key(&exact[0]), key(&exact[1])];
         keys.dedup();
         for k in &keys {
             for (pk, idx) in range(&self.by_phon, k) {
@@ -563,9 +610,13 @@ impl Lexicon {
                         continue;
                     }
                     // après « je », « il »… : un verbe est attendu, pas un nom
-                    let noun_after_subject =
-                        hint.person.is_some() && !hint.participle && !hint.infinitive && e.verbs.is_empty();
-                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - if noun_after_subject { 2.5 } else { 0.0 });
+                    let noun_after_subject = Self::verb_expected(hint) && e.verbs.is_empty();
+                    // même prononciation exacte (« pleu » : pleut, pas plaît)
+                    let exact = exact.iter().any(|p| **p == *e.pron);
+                    let s = e.weight + Self::adjust(e, hint) - if noun_after_subject { 2.5 } else { 0.0 }
+                        + if exact { 2.0 } else { 0.0 };
+                    let old = cands.entry(*idx).or_insert(f32::MIN);
+                    *old = old.max(s);
                 }
             }
         }

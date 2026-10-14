@@ -32,6 +32,17 @@ function gnMask(genre, nombre) {
   return m;
 }
 
+// Noms courants dont Lexique ne donne pas le genre (« maison », « voiture »…) : sans lui,
+// Scriba ne saurait pas corriger « le maison ». Seuls les noms qui n'ont qu'un genre en français.
+const NOUN_GENDER = {
+  f: "barbe bosse carrière chance chips claque clope crème crêpes foudre gloire gorge justice main maison ordonnance ombre ombres poche poches radio radios remarque rues souris trompette vague vagues vapeur voiture fin fins part pub technique auto coke dope donne baskets",
+  m: "espace cours geste gestes hymne internet coca malaise plat plastique mai micro office litres mannequin",
+};
+// Noms invariables que Lexique note seulement au pluriel (« un cours », « une fois »).
+const BOTH_NUMBERS = new Set("cours fois".split(" "));
+const GENDER_OF = new Map();
+for (const [g, list] of Object.entries(NOUN_GENDER)) for (const w of list.split(" ")) GENDER_OF.set(w, g);
+
 const words = new Map();
 for (let i = 1; i < lines.length; i++) {
   const f = lines[i].split("\t");
@@ -51,7 +62,8 @@ for (let i = 1; i < lines.length; i++) {
   const cg = f[C.cgram];
   if (cg) w.tags.set(cg, (w.tags.get(cg) || 0) + fr);
   if (cg !== "VER" && cg !== "AUX" || f[C.genre] || f[C.nombre]) {
-    if (cg !== "ADV" && cg !== "PRE" && cg !== "CON" && cg !== "ONO") w.gn |= gnMask(f[C.genre], f[C.nombre]);
+    const genre = f[C.genre] || (cg === "NOM" && GENDER_OF.get(ortho)) || "";
+    if (cg !== "ADV" && cg !== "PRE" && cg !== "CON" && cg !== "ONO") w.gn |= gnMask(genre, cg === "NOM" && BOTH_NUMBERS.has(ortho) ? "" : f[C.nombre]);
   }
   if ((cg === "VER" || cg === "AUX") && f[C.infover]) {
     const lem = f[C.lemme];

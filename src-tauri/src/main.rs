@@ -5,6 +5,8 @@ mod auto_tests;
 mod clipboard;
 mod conj;
 mod custom;
+#[cfg(test)]
+mod eval_tests;
 mod grammar;
 mod hook;
 mod inject;

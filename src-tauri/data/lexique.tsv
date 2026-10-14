@@ -9655,7 +9655,7 @@ autisme	otizm	0.15	NOM		1	au-tis-me
 autiste	otist	0.50	ADJ,NOM		5	au-tis-te
 autistes	otist	0.16	ADJ,NOM		a	au-tis-tes
 autistique	otistik	0.06	ADJ		5	au-tis-ti-que
-auto	oto	23.30	NOM		5	au-to
+auto	oto	23.30	NOM		4	au-to
 auto-adhésive	otoadeziv	0.04	ADJ		4	auto-adhésive
 auto-analyse	otoanaliz	0.05	NOM		4	auto-analyse
 auto-immun	otoimm1	0.01	ADJ		1	
@@ -11507,7 +11507,7 @@ barbarie	baRbaRi	2.47	NOM		4	bar-ba-rie
 barbaries	baRbaRi	0.08	NOM		8	bar-ba-ries
 barbarisme	baRbaRizm	0.09	NOM		1	bar-ba-ris-me
 barbarismes	baRbaRizm	0.10	NOM		2	bar-ba-ris-mes
-barbe	baRb	35.95	NOM,VER	barber=ind:pre:1s;ind:pre:3s	5	bar-be
+barbe	baRb	35.95	NOM,VER	barber=ind:pre:1s;ind:pre:3s	4	bar-be
 barbe-de-capucin	baRbdkapys5	0.04	NOM		4	barbe-de-capucin
 barbeau	baRbo	0.38	NOM		1	bar-beau
 barbeaux	baRbo	0.17	NOM		2	bar-beaux
@@ -11831,7 +11831,7 @@ basique	bazik	0.42	ADJ		5	ba-si-que
 basiques	bazik	0.23	ADJ		a	ba-si-ques
 basket	baskEt	5.90	NOM		5	bas-ket
 basket-ball	baskEtbOl	0.86	NOM		1	basket-ball
-baskets	baskEt	4.06	NOM		a	bas-kets
+baskets	baskEt	4.06	NOM		8	bas-kets
 basketteur	baskEt9R	0.19	NOM		1	bas-ket-teur
 basketteurs	baskEt9R	0.09	NOM		2	bas-ket-teurs
 basketteuse	baskEt2z	0.01	NOM		4	
@@ -14005,7 +14005,7 @@ bossaient	bosE	0.27	VER	bosser=ind:imp:3p	0	bos-saient
 bossais	bosE	1.50	VER	bosser=ind:imp:1s;ind:imp:2s	0	bos-sais
 bossait	bosE	1.89	VER	bosser=ind:imp:3s	0	bos-sait
 bossant	bos@	0.30	VER	bosser=par:pre	0	bos-sant
-bosse	bOs	18.73	VER,NOM	bosser=imp:pre:2s;ind:pre:1s;ind:pre:3s	5	bos-se
+bosse	bOs	18.73	VER,NOM	bosser=imp:pre:2s;ind:pre:1s;ind:pre:3s	4	bos-se
 bossela	bOs°la	0.04	VER	bosseler=ind:pas:3s	0	bos-se-la
 bosselaient	bOs°lE	0.17	VER	bosseler=ind:imp:3p	0	bos-se-laient
 bosselait	bOs°lE	0.04	VER	bosseler=ind:imp:3s	0	bos-se-lait
@@ -18661,7 +18661,7 @@ carrier	kaRje	0.24	NOM		1	car-rier
 carriers	kaRje	0.14	NOM		2	car-riers
 carriole	kaRjOl	4.82	NOM		4	car-rio-le
 carrioles	kaRjOl	1.13	NOM		8	car-rio-les
-carrière	kaRjER	34.13	NOM		5	car-riè-re
+carrière	kaRjER	34.13	NOM		4	car-riè-re
 carrières	kaRjER	2.21	NOM		8	car-riè-res
 carriérisme	kaRjeRizm	0.01	NOM		1	car-rié-ris-me
 carriériste	kaRjeRist	0.17	NOM		5	car-rié-ris-te
@@ -19823,7 +19823,7 @@ champis	S@pi	0.01	NOM		2	cham-pis
 champs	S@	36.05	NOM		2	champs
 champêtre	S@pEtR	2.56	ADJ		5	cham-pê-tre
 champêtres	S@pEtR	0.79	ADJ		a	cham-pê-tres
-chance	S@s	224.03	NOM		5	chan-ce
+chance	S@s	224.03	NOM		4	chan-ce
 chancel	S@sEl	0.01	NOM		1	chan-cel
 chancela	S@s°la	0.54	VER	chanceler=ind:pas:3s	0	chan-ce-la
 chancelai	S@s°lE	0.04	VER	chanceler=ind:pas:1s	0	chan-ce-lai
@@ -21011,7 +21011,7 @@ chipotons	Sipot§	0.05	VER	chipoter=imp:pre:1p	0	chi-po-tons
 chipoté	Sipote	0.04	VER	chipoter=par:pas	1	chi-po-té
 chippendale	Sip9ndEjl	0.04	ADJ,NOM		5	chip-pen-da-le
 chippendales	Sip9ndEjlz	0.05	NOM		2	chip-pen-da-les
-chips	Sips	3.83	NOM		a	chips
+chips	Sips	3.83	NOM		8	chips
 chipèrent	SipER	0.04	VER	chiper=ind:pas:3p	0	chi-pè-rent
 chipé	Sipe	0.67	VER	chiper=par:pas	1	chi-pé
 chipée	Sipe	0.16	VER	chiper=par:pas	4	chi-pée
@@ -22251,7 +22251,7 @@ claquant	klak@	5.46	VER,ADJ	claquer=par:pre	1	cla-quant
 claquante	klak@t	0.07	ADJ		4	cla-quan-te
 claquantes	klak@t	0.07	ADJ		8	cla-quan-tes
 claquants	klak@	0.10	ADJ		2	cla-quants
-claque	klak	14.83	VER,NOM	claquer=imp:pre:2s;ind:pre:1s;ind:pre:3s	5	cla-que
+claque	klak	14.83	VER,NOM	claquer=imp:pre:2s;ind:pre:1s;ind:pre:3s	4	cla-que
 claque-merde	klakmERd	0.23	NOM		1	claque-merde
 claquedents	klak°d@	0.04	NOM		2	cla-que-dents
 claquement	klak°m@	5.09	NOM		1	cla-que-ment
@@ -22587,7 +22587,7 @@ cloné	klone	0.23	VER	cloner=par:pas	1	clo-né
 clonés	klone	0.04	VER	cloner=par:pas	2	clo-nés
 clopais	klopE	0.01	VER	cloper=ind:imp:1s	0	clo-pais
 clopant	klop@	0.07	VER	cloper=par:pre	0	clo-pant
-clope	klOp	5.33	NOM,VER	cloper=imp:pre:2s;ind:pre:3s	5	clo-pe
+clope	klOp	5.33	NOM,VER	cloper=imp:pre:2s;ind:pre:3s	4	clo-pe
 cloper	klOpe	0.18	VER	cloper=inf	0	clo-per
 clopes	klOp	3.27	NOM,VER	cloper=ind:pre:2s	a	clo-pes
 clopeur	klop9R	0.04	NOM		1	clo-peur
@@ -22801,7 +22801,7 @@ cobelligérants	kobEliZeR@	0.04	NOM		2	co-bel-li-gé-rants
 cobol	kobOl	0.01	NOM		1	co-bol
 cobra	kobRa	2.35	NOM		1	co-bra
 cobras	kobRa	0.18	NOM		2	co-bras
-coca	koka	8.36	NOM		5	co-ca
+coca	koka	8.36	NOM		1	co-ca
 coca-cola	kokakola	0.71	NOM		3	coca-cola
 cocagne	kokaN	0.65	NOM		4	co-ca-gne
 cocagnes	kokaN	0.04	NOM		8	co-ca-gnes
@@ -23138,7 +23138,7 @@ coir	kwaR	0.01	NOM		1
 cois	kwa	0.34	ADJ		a	cois
 coite	kwat	0.34	ADJ		4	coi-te
 coites	kwat	0.07	ADJ		8	coi-tes
-coke	kok	6.98	NOM		5	co-ke
+coke	kok	6.98	NOM		4	co-ke
 cokes	kok	0.03	NOM		8	co-kes
 col	kOl	30.09	NOM		1	col
 col-de-cygne	kOld°siN	0.01	NOM		1	
@@ -28266,7 +28266,7 @@ courroucés	kuRuse	0.10	VER	courroucer=par:pas	2	cour-rou-cés
 courroux	kuRu	2.82	NOM		3	cour-roux
 courrouçaient	kuRusE	0.04	VER	courroucer=ind:imp:3p	0	cour-rou-çaient
 courrouçait	kuRusE	0.04	VER	courroucer=ind:imp:3s	0	cour-rou-çait
-cours	kuR	173.91	NOM,VER	courir=imp:pre:2s;ind:pre:1s;ind:pre:2s	a	cours
+cours	kuR	173.91	NOM,VER	courir=imp:pre:2s;ind:pre:1s;ind:pre:2s	3	cours
 coursaient	kuRsE	0.05	VER	courser=ind:imp:3p	0	cour-saient
 coursais	kuRsE	0.04	VER	courser=ind:imp:1s;ind:imp:2s	0	cour-sais
 coursait	kuRsE	0.05	VER	courser=ind:imp:3s	0	cour-sait
@@ -29731,7 +29731,7 @@ crêpelure	kREp°lyR	0.07	NOM		4	crê-pe-lu-re
 crêpelées	kREp°le	0.04	ADJ		8	crê-pe-lées
 crêpelés	kREp°le	0.07	ADJ		2	crê-pe-lés
 crêper	kRepe	0.17	VER	crêper=inf	0	crê-per
-crêpes	kREp	4.10	NOM,VER	crêper=sub:pre:2s	a	crê-pes
+crêpes	kREp	4.10	NOM,VER	crêper=sub:pre:2s	8	crê-pes
 crêpé	kRepe	0.15	VER	crêper=par:pas	1	crê-pé
 crêpée	kRepe	0.08	ADJ,VER	crêper=par:pas	4	crê-pée
 crêpés	kRepe	0.15	ADJ,VER	crêper=par:pas	2	crê-pés
@@ -33488,7 +33488,7 @@ donnant	don@	22.38	VER,ADJ	donner=par:pre	1	don-nant
 donnant-donnant	don@don@	0.57	ADV		0	donnant-donnant
 donnas	dona	0.02	VER	donner=ind:pas:2s	0	don-nas
 donnassent	donas	0.07	VER	donner=sub:imp:3p	0	don-nas-sent
-donne	dOn	288.41	VER,NOM	donner=imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:1s;sub:pre:3s	5	don-ne
+donne	dOn	288.41	VER,NOM	donner=imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:1s;sub:pre:3s	4	don-ne
 donnent	dOn	23.02	VER	donner=ind:pre:3p;sub:pre:3p	0	don-nent
 donner	done	224.96	VER,NOM	donner=inf	1	don-ner
 donnera	dOn°Ra	16.80	VER	donner=ind:fut:3s	0	don-ne-ra
@@ -33531,7 +33531,7 @@ dopait	dopE	0.02	VER	doper=ind:imp:3s	0	do-pait
 dopamine	dopamin	0.55	NOM		4	do-pa-mi-ne
 dopant	dOp@	0.08	ADJ,VER	doper=par:pre	1	
 dopants	dop@	0.02	ADJ		2	do-pants
-dope	dOp	4.92	NOM,VER	doper=imp:pre:2s;ind:pre:3s	5	do-pe
+dope	dOp	4.92	NOM,VER	doper=imp:pre:2s;ind:pre:3s	4	do-pe
 doper	dope	0.17	VER	doper=inf	0	do-per
 dopes	dOp	0.06	NOM,VER	doper=ind:pre:2s	a	do-pes
 dopez	dope	0.01	VER	doper=imp:pre:2p;ind:pre:2p	0	do-pez
@@ -45682,7 +45682,7 @@ esgourdé	EsguRde	0.04	VER	esgourder=par:pas	1	es-gour-dé
 esgourdée	EsguRde	0.04	VER	esgourder=par:pas	4	es-gour-dée
 eskimo	Eskimo	0.06	ADJ,NOM		1	es-ki-mo
 eskimos	Eskimo	0.05	ADJ,NOM		2	es-ki-mos
-espace	Espas	60.38	NOM,VER	espacer=imp:pre:2s;ind:pre:1s;ind:pre:3s	5	es-pa-ce
+espace	Espas	60.38	NOM,VER	espacer=imp:pre:2s;ind:pre:1s;ind:pre:3s	1	es-pa-ce
 espace-temps	Espast@	0.85	NOM		3	espace-temps
 espacement	Espas°m@	0.22	NOM		1	es-pa-ce-ment
 espacements	Espas°m@	0.01	NOM		2	es-pa-ce-ments
@@ -50409,7 +50409,7 @@ foiré	fwaRe	3.85	VER	foirer=par:pas	1	foi-ré
 foirée	fwaRe	0.06	VER	foirer=par:pas	4	foi-rée
 foirées	fwaRe	0.05	VER	foirer=par:pas	8	foi-rées
 foirés	fwaRe	0.05	VER	foirer=par:pas	2	foi-rés
-fois	fwa	1019.63	NOM		8	fois
+fois	fwa	1019.63	NOM		c	fois
 foison	fwaz§	0.73	NOM		4	foi-son
 foisonnaient	fwazonE	0.20	VER	foisonner=ind:imp:3p	0	foi-son-naient
 foisonnait	fwazonE	0.04	VER	foisonner=ind:imp:3s	0	foi-son-nait
@@ -50942,7 +50942,7 @@ fouaillées	fwaje	0.04	VER	fouailler=par:pas	8	fouail-lées
 foucade	fukad	0.08	NOM		4	fou-ca-de
 foucades	fukad	0.17	NOM		8	fou-ca-des
 fouchtra	fuStRa	0.14	ONO		0	fou-ch-tra
-foudre	fudR	12.57	NOM		5	fou-dre
+foudre	fudR	12.57	NOM		4	fou-dre
 foudres	fudR	1.13	NOM		a	fou-dres
 foudroie	fudRwa	0.38	VER	foudroyer=ind:pre:1s;ind:pre:3s	0	fou-droie
 foudroiement	fudRwam@	0.01	NOM		1	
@@ -53970,8 +53970,8 @@ gestapiste	gEstapist	0.07	NOM		1	ges-ta-pis-te
 gestapo	gEstapo	1.19	NOM		4	ges-ta-po
 gestation	ZEstasj§	1.15	NOM		4	ges-ta-tion
 gestations	ZEstasj§	0.04	NOM		8	ges-ta-tions
-geste	ZEst	101.72	NOM		5	ges-te
-gestes	ZEst	54.20	NOM		a	ges-tes
+geste	ZEst	101.72	NOM		1	ges-te
+gestes	ZEst	54.20	NOM		2	ges-tes
 gesticula	ZEstikyla	0.07	VER	gesticuler=ind:pas:3s	0	ges-ti-cu-la
 gesticulai	ZEstikylE	0.04	VER	gesticuler=ind:pas:1s	0	ges-ti-cu-lai
 gesticulaient	ZEstikylE	0.27	VER	gesticuler=ind:imp:3p	0	ges-ti-cu-laient
@@ -54412,7 +54412,7 @@ globuleuse	globyl2z	0.07	ADJ		4	glo-bu-leu-se
 globuleux	globyl2	2.46	ADJ		3	glo-bu-leux
 globuline	globylin	0.01	NOM		4	glo-bu-li-ne
 glockenspiel	glokEnSpil	0.05	NOM		1	glo-cken-spiel
-gloire	glwaR	41.64	NOM		5	gloi-re
+gloire	glwaR	41.64	NOM		4	gloi-re
 gloires	glwaR	1.42	NOM		8	gloi-res
 glomérule	glomeRyl	0.04	NOM		1	glo-mé-ru-le
 glop	glOp	0.14	NOM		4	glop
@@ -54770,7 +54770,7 @@ gordiens	gORdj5	0.04	ADJ		2	gor-diens
 gore	gOR	0.38	ADJ,NOM		5	go-re
 goret	goRE	0.88	NOM		1	go-ret
 gorets	goRE	0.19	NOM		2	go-rets
-gorge	gORZ	56.52	NOM,VER	gorger=imp:pre:2s;ind:pre:1s;ind:pre:3s	5	gor-ge
+gorge	gORZ	56.52	NOM,VER	gorger=imp:pre:2s;ind:pre:1s;ind:pre:3s	4	gor-ge
 gorge-de-pigeon	gORZd2piZ§	0.08	ADJ		1	gorge-de-pigeon
 gorgea	gORZa	0.08	VER	gorger=ind:pas:3s	0	gor-gea
 gorgeai	gORZE	0.07	VER	gorger=ind:pas:1s	0	gor-geai
@@ -58771,7 +58771,7 @@ hygrométrique	igRometRik	0.04	ADJ		5	hy-gro-mé-tri-que
 hygrométriques	igRometRik	0.04	ADJ		8	hy-gro-mé-tri-ques
 hylémorphique	ilemoRfik	0.04	ADJ		4	hy-lé-mor-phi-que
 hymen	imEn	1.19	NOM		1	hy-men
-hymne	imn	6.03	NOM		5	hym-ne
+hymne	imn	6.03	NOM		1	hym-ne
 hymnes	imn	1.45	NOM		a	hym-nes
 hyménoptère	imenOptER	0.04	NOM		1	hy-mé-no-ptè-re
 hyménoptères	imenOptER	0.11	NOM		2	hy-mé-no-ptè-res
@@ -63370,7 +63370,7 @@ interne	5tERn	10.18	ADJ,NOM,VER	interner=ind:pre:3s;sub:pre:3s	5	in-ter-ne
 internement	5tERn°m@	0.86	NOM		1	in-ter-ne-ment
 interner	5tERne	0.99	VER	interner=inf	0	in-ter-ner
 internes	5tERn	5.33	ADJ,NOM		a	in-ter-nes
-internet	5tERnEt	2.81	NOM		5	in-ter-net
+internet	5tERnEt	2.81	NOM		1	in-ter-net
 internez	5tERne	0.01	VER	interner=imp:pre:2p	0	in-ter-nez
 interniste	5tERnist	0.01	NOM		5	in-ter-nis-te
 interné	5tERne	1.13	VER,NOM,ADJ	interner=par:pas	1	in-ter-né
@@ -65601,7 +65601,7 @@ juste-milieu	Zyst°milj2	0.04	NOM		3	juste-milieu
 justement	Zyst°m@	70.13	ADV		0	jus-te-ment
 justes	Zyst	5.98	ADJ,NOM		a	jus-tes
 justesse	ZystEs	5.25	NOM		4	jus-tes-se
-justice	Zystis	48.59	NOM		5	jus-ti-ce
+justice	Zystis	48.59	NOM		4	jus-ti-ce
 justices	Zystis	0.04	NOM		8	jus-ti-ces
 justiciable	Zystisjabl	0.18	ADJ		1	jus-ti-cia-ble
 justiciables	Zystisjabl	0.10	ADJ		a	jus-ti-cia-bles
@@ -67663,7 +67663,7 @@ litote	litOt	0.12	NOM		4	li-to-te
 litotes	litOt	0.10	NOM		8	li-to-tes
 litre	litR	6.47	NOM		5	li-tre
 litrer	litRe	0.04	VER	litrer=inf	0	
-litres	litR	7.88	NOM		a	li-tres
+litres	litR	7.88	NOM		2	li-tres
 litron	litR§	1.01	NOM		1	li-tron
 litronaient	litRonE	0.04	VER	litroner=ind:imp:3p	0	li-tro-naient
 litrons	litR§	0.68	NOM		2	li-trons
@@ -69199,7 +69199,7 @@ mahonia	maonja	0.20	NOM		1	ma-ho-nia
 mahonias	maonja	0.10	NOM		2	ma-ho-nias
 mahousse	maus	0.55	ADJ		4	ma-hous-se
 mahousses	maus	0.15	ADJ		8	ma-hous-ses
-mai	mE	35.11	NOM		5	mai
+mai	mE	35.11	NOM		1	mai
 maid	mEd	0.10	NOM		4	
 maie	mE	0.54	NOM		4	maie
 maies	mE	0.08	NOM		8	maies
@@ -69250,7 +69250,7 @@ maillé	maje	0.07	ADJ		1	mail-lé
 maillés	maje	0.01	ADJ		2	mail-lés
 mails	mEjl	0.53	NOM		2	mails
 mailé	mEjle	0.05	VER	mailer=par:pas	1	mai-lé
-main	m5	537.67	NOM		5	main
+main	m5	537.67	NOM		4	main
 main-courante	m5kuR@t	0.04	NOM		4	main-courante
 main-d'oeuvre	m5d9vR	1.26	NOM		4	main-d'oeuvre
 main-forte	m5fORt	0.39	NOM		c	main-forte
@@ -69303,7 +69303,7 @@ mairesse	mEREs	0.07	NOM		4	mai-res-se
 mairie	meRi	14.24	NOM		4	mai-rie
 mairies	meRi	0.51	NOM		8	mai-ries
 mais	mE	4822.89	CON,ADV		0	mais
-maison	mEz§	515.92	NOM		5	mai-son
+maison	mEz§	515.92	NOM		4	mai-son
 maison-mère	mEz§mER	0.13	NOM		4	
 maisonnette	mEzonEt	3.12	NOM		4	mai-son-net-te
 maisonnettes	mEzonEt	1.16	NOM		8	mai-son-net-tes
@@ -69929,7 +69929,7 @@ maniérées	manjeRe	0.18	ADJ,VER	maniérer=par:pas	8	ma-nié-rées
 maniérés	manjeRe	0.17	ADJ,VER	maniérer=par:pas	2	ma-nié-rés
 maniés	manje	0.17	VER	manier=par:pas	2	ma-niés
 manne	man	0.87	NOM		4	man-ne
-mannequin	man°k5	7.22	NOM		5	man-ne-quin
+mannequin	man°k5	7.22	NOM		1	man-ne-quin
 mannequine	man°kin	0.04	VER	mannequiner=ind:pre:3s	0	man-ne-qui-ne
 mannequins	man°k5	4.28	NOM		a	man-ne-quins
 mannes	man	0.14	NOM		8	man-nes
@@ -72043,7 +72043,7 @@ micmac	mikmak	0.23	NOM		1	mic-mac
 micmacs	mikmak	0.15	NOM		2	mic-macs
 micocoulier	mikokulje	0.07	NOM		1	mi-co-cou-lier
 micocouliers	mikokulje	0.10	NOM		2	mi-co-cou-liers
-micro	mikRo	9.04	NOM		5	mi-cro
+micro	mikRo	9.04	NOM		1	mi-cro
 micro-cravate	mikRokRavat	0.01	NOM		1	micro-cravate
 micro-onde	mikRo§d	0.19	NOM		4	micro-onde
 micro-ondes	mikRo§d	1.30	NOM		3	micro-ondes
@@ -78074,7 +78074,7 @@ offerte	ofERt	8.55	VER	offrir=par:pas	4	of-fer-te
 offertes	ofERt	2.39	VER	offrir=par:pas	8	of-fer-tes
 offertoire	ofERtwaR	0.17	NOM		1	of-fer-toi-re
 offerts	ofER	2.43	VER	offrir=par:pas	2	of-ferts
-office	ofis	13.71	NOM		5	of-fi-ce
+office	ofis	13.71	NOM		1	of-fi-ce
 offices	ofis	1.99	NOM		2	of-fi-ces
 officiaient	ofisjE	0.20	VER	officier=ind:imp:3p	0	of-fi-ciaient
 officiais	ofisjE	0.07	VER	officier=ind:imp:1s	0	of-fi-ciais
@@ -78304,11 +78304,11 @@ ombragés	§bRaZe	0.18	VER,ADJ	ombrager=par:pas	2	om-bra-gés
 ombraient	§bRE	0.04	VER	ombrer=ind:imp:3p	0	om-braient
 ombrait	§bRE	0.10	VER	ombrer=ind:imp:3s	0	om-brait
 ombrant	§bR@	0.11	VER,ADJ	ombrer=par:pre	1	om-brant
-ombre	§bR	113.56	NOM,VER	ombrer=imp:pre:2s;ind:pre:3s	5	om-bre
+ombre	§bR	113.56	NOM,VER	ombrer=imp:pre:2s;ind:pre:3s	4	om-bre
 ombrelle	§bREl	2.29	NOM		4	om-brel-le
 ombrelles	§bREl	0.60	NOM		8	om-brel-les
 ombrer	§bRe	0.17	VER	ombrer=inf	0	om-brer
-ombres	§bR	26.34	NOM,VER	ombrer=sub:pre:2s	a	om-bres
+ombres	§bR	26.34	NOM,VER	ombrer=sub:pre:2s	8	om-bres
 ombreuse	§bR2z	0.34	ADJ		4	om-breu-se
 ombreuses	§bR2z	0.47	ADJ		8	om-breu-ses
 ombreux	§bR2	0.41	ADJ		3	om-breux
@@ -78815,7 +78815,7 @@ ordonnai	ORdonE	0.39	VER	ordonner=ind:pas:1s	0	or-don-nai
 ordonnaient	ORdonE	0.21	VER	ordonner=ind:imp:3p	0	or-don-naient
 ordonnais	ORdonE	0.15	VER	ordonner=ind:imp:1s	0	or-don-nais
 ordonnait	ORdonE	1.65	VER	ordonner=ind:imp:3s	0	or-don-nait
-ordonnance	ORdon@s	13.80	NOM		5	or-don-nan-ce
+ordonnance	ORdon@s	13.80	NOM		4	or-don-nan-ce
 ordonnancement	ORdon@s°m@	0.14	NOM		1	or-don-nan-ce-ment
 ordonnancer	ORdon@se	0.07	VER	ordonnancer=inf	0	or-don-nan-cer
 ordonnances	ORdon@s	2.89	NOM		a	or-don-nan-ces
@@ -80946,7 +80946,7 @@ parsi	paRsi	0.15	ADJ,NOM		1
 parsis	paRsi	0.07	NOM		2	par-sis
 parsème	paRsEm	0.07	VER	parsemer=ind:pre:3s	0	par-sè-me
 parsèment	paRsEm	0.32	VER	parsemer=ind:pre:3p	0	par-sè-ment
-part	paR	349.14	NOM,VER	partir=ind:pre:3s	5	part
+part	paR	349.14	NOM,VER	partir=ind:pre:3s	4	part
 partage	paRtaZ	17.91	VER,NOM	partager=imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:1s	1	par-ta-ge
 partagea	paRtaZa	0.63	VER	partager=ind:pas:3s	0	par-ta-gea
 partageable	paRtaZabl	0.04	ADJ		5	par-ta-gea-ble
@@ -84597,7 +84597,7 @@ plastronner	plastRone	0.32	VER	plastronner=inf	0	plas-tron-ner
 plastronnes	plastROn	0.04	VER	plastronner=ind:pre:2s	0	plas-tron-nes
 plastronneur	plastRon9R	0.04	NOM		1	plas-tron-neur
 plastrons	plastR§	0.15	NOM		2	plas-trons
-plat	pla	51.49	NOM,ADJ		5	plat
+plat	pla	51.49	NOM,ADJ		1	plat
 plat-bord	plabOR	0.27	NOM		1	plat-bord
 plat-ventre	plav@tR	0.13	NOM,ADJ		1	
 platane	platan	2.28	NOM		1	pla-ta-ne
@@ -85076,10 +85076,10 @@ pochage	poSaZ	0.04	NOM		1	po-cha-ge
 pochard	poSaR	0.53	NOM,ADJ		1	po-chard
 pocharde	poSaRd	0.34	NOM,ADJ		4	po-char-de
 pochards	poSaR	0.14	NOM		2	po-chard-s
-poche	pOS	69.16	NOM,VER	pocher=imp:pre:2s;ind:pre:3s	5	po-che
+poche	pOS	69.16	NOM,VER	pocher=imp:pre:2s;ind:pre:3s	4	po-che
 poche-revolver	pOSRevOlvER	0.14	NOM		5	
 pocher	poSe	0.11	VER	pocher=inf	0	po-cher
-poches	pOS	28.95	NOM,VER	pocher=ind:pre:2s;sub:pre:2s	a	po-ches
+poches	pOS	28.95	NOM,VER	pocher=ind:pre:2s;sub:pre:2s	8	po-ches
 pochetron	poSEtR§	0.11	NOM		1	po-che-tron
 pochetrons	poSEtR§	0.04	NOM		2	po-che-trons
 pochette	poSEt	4.29	NOM		4	po-chet-te
@@ -89482,7 +89482,7 @@ puantes	p8@t	1.53	ADJ		8	puan-tes
 puanteur	p8@t9R	5.62	NOM		4	puan-teur
 puanteurs	p8@t9R	0.64	NOM		8	puan-teurs
 puants	p8@	1.54	ADJ		2	puants
-pub	p9b	12.69	NOM		5	pub
+pub	p9b	12.69	NOM		4	pub
 pubertaire	pybERtER	0.11	ADJ		5	pu-ber-tai-re
 pubertaires	pybERtER	0.07	ADJ		8	pu-ber-tai-res
 puberté	pybERte	1.84	NOM		4	pu-ber-té
@@ -91645,7 +91645,7 @@ radinez	Radine	0.04	VER	radiner=imp:pre:2p	0	ra-di-nez
 radins	Rad5	0.34	ADJ,NOM		2	ra-dins
 radiné	Radine	0.28	VER	radiner=par:pas	1	ra-di-né
 radinée	Radine	0.05	VER	radiner=par:pas	4	ra-di-née
-radio	Radjo	60.92	NOM		5	ra-dio
+radio	Radjo	60.92	NOM		4	ra-dio
 radio-isotope	RadjoizotOp	0.02	NOM		1	radio-isotope
 radio-réveil	RadjoRevEj	0.12	NOM		1	ra-dio-ré-veil
 radio-taxi	Radjotaksi	0.11	NOM		1	radio-taxi
@@ -91692,7 +91692,7 @@ radiophonie	Radjofoni	0.14	NOM		4	ra-dio-pho-nie
 radiophonique	Radjofonik	0.72	ADJ		5	ra-dio-pho-ni-que
 radiophoniques	Radjofonik	0.42	ADJ		a	ra-dio-pho-ni-ques
 radioréveil	RadjoRevEj	0.01	NOM		1	ra-dio-ré-veil
-radios	Radjo	5.69	NOM		a	ra-dios
+radios	Radjo	5.69	NOM		8	ra-dios
 radioscopie	Radjoskopi	0.09	NOM		4	ra-dio-sco-pie
 radioscopique	RadjOskOpik	0.01	ADJ		4	
 radioscopiques	Radjoskopik	0.04	ADJ		a	ra-dio-sco-pi-ques
@@ -95653,7 +95653,7 @@ remarquais	R°maRkE	0.92	VER	remarquer=ind:imp:1s;ind:imp:2s	0	re-mar-quais
 remarquait	R°maRkE	2.81	VER	remarquer=ind:imp:3s	0	re-mar-quait
 remarquant	R°maRk@	0.71	VER	remarquer=par:pre	0	re-mar-quant
 remarquas	R°maRka	0.04	VER	remarquer=ind:pas:2s	0	re-mar-quas
-remarque	R°maRk	22.30	NOM,VER	remarquer=imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:3s	5	re-mar-que
+remarque	R°maRk	22.30	NOM,VER	remarquer=imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:3s	4	re-mar-que
 remarquent	R°maRk	1.01	VER	remarquer=ind:pre:3p	0	re-mar-quent
 remarquer	R°maRke	22.01	VER	remarquer=inf	0	re-mar-quer
 remarquera	R°maRk°Ra	0.86	VER	remarquer=ind:fut:3s	0	re-mar-que-ra
@@ -100013,7 +100013,7 @@ ruelles	R8El	9.59	NOM		8	ruel-les
 ruent	Ry	0.73	VER	ruer=ind:pre:3p	0	ruent
 ruer	R8e	1.89	VER	ruer=inf	0	ruer
 rueront	RyR§	0.04	VER	ruer=ind:fut:3p	0	rue-ront
-rues	Ry	72.08	NOM,VER	ruer=ind:pre:2s;sub:pre:2s	a	rues
+rues	Ry	72.08	NOM,VER	ruer=ind:pre:2s;sub:pre:2s	8	rues
 ruffian	Ryfj@	0.44	NOM		1	ruf-fian
 ruffians	Ryfj@	0.24	NOM		2	ruf-fians
 rufian	Ryfj@	0.01	NOM		1	
@@ -107399,7 +107399,7 @@ sourirent	suRiR	1.01	VER	sourire=ind:pas:3p	0	sou-ri-rent
 sourires	suRiR	10.54	NOM		2	sou-ri-res
 sourirons	suRiR§	0.01	VER	sourire=ind:fut:1p	0	sou-ri-rons
 souriront	suRiR§	0.01	VER	sourire=ind:fut:3p	0	sou-ri-ront
-souris	suRi	37.47	NOM,VER,ADJ	sourire=imp:pre:2s;ind:pre:1s;ind:pre:2s	f	sou-ris
+souris	suRi	37.47	NOM,VER,ADJ	sourire=imp:pre:2s;ind:pre:1s;ind:pre:2s	d	sou-ris
 sourit	suRi	53.72	VER	sourire=ind:pre:3s;ind:pas:3s	0	sou-rit
 sournois	suRnwa	6.85	ADJ,NOM		3	sour-nois
 sournoise	suRnwaz	3.65	ADJ,NOM		4	sour-noi-se
@@ -115996,7 +115996,7 @@ tromperons	tR§p°R§	0.01	VER	tromper=ind:fut:1p	0	trom-pe-rons
 tromperont	tR§p°R§	0.17	VER	tromper=ind:fut:3p	0	trom-pe-ront
 trompes	tR§p	12.12	VER,NOM	tromper=ind:pre:2s;sub:pre:2s	8	trom-pes
 trompeter	tR§p°te	0.05	VER	trompeter=inf	0	trom-pe-ter
-trompette	tR§pEt	5.66	NOM		5	trom-pet-te
+trompette	tR§pEt	5.66	NOM		4	trom-pet-te
 trompettes	tR§pEt	4.09	NOM		a	trom-pet-tes
 trompettiste	tR§petist	0.71	NOM		5	trom-pet-tis-te
 trompettistes	tR§pEtist	0.02	NOM		a	trom-pet-tis-tes
@@ -118068,7 +118068,7 @@ vantées	v@te	0.10	VER	vanter=par:pas	8	van-tées
 vantés	v@te	0.11	VER	vanter=par:pas	2	van-tés
 vape	vap	1.15	NOM		4	va-pe
 vapes	vap	1.00	NOM		8	va-pes
-vapeur	vap9R	12.64	NOM		5	va-peur
+vapeur	vap9R	12.64	NOM		4	va-peur
 vapeurs	vap9R	4.75	NOM		a	va-peurs
 vaporetto	vapoREto	0.36	NOM		1	va-po-ret-to
 vaporeuse	vapoR2z	0.96	ADJ		4	va-po-reu-se
@@ -119835,7 +119835,7 @@ voisiné	vwazine	0.01	VER	voisiner=par:pas	1
 voit	vwa	170.38	VER	voir=ind:pre:3s	0	voit
 voituraient	vwatyRE	0.04	VER	voiturer=ind:imp:3p	0	voi-tu-raient
 voiturait	vwatyRE	0.04	VER	voiturer=ind:imp:3s	0	voi-tu-rait
-voiture	vwatyR	306.19	NOM,VER	voiturer=imp:pre:2s;ind:pre:1s;ind:pre:3s	5	voi-tu-re
+voiture	vwatyR	306.19	NOM,VER	voiturer=imp:pre:2s;ind:pre:1s;ind:pre:3s	4	voi-tu-re
 voiture-balai	vwatyRbalE	0.12	NOM		4	voiture-balai
 voiture-bar	vwatyRbaR	0.01	NOM		4	
 voiture-lit	vwatyRli	0.01	NOM		4	voiture-lit
