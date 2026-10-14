@@ -195,7 +195,30 @@ fn noun_group(lex: &Lexicon, toks: &[Token], i: usize) -> Option<(u8, usize, u8)
         0 => dmask,
         g => g,
     };
+    // « le chat et le chien | jouent », « le ciel et la mer | sont bleus » : deux groupes reliés par « et »
+    // forment un sujet pluriel (au féminin seulement si les deux sont féminins)
+    if let Some((_, _, gn0)) = coordinated_with(lex, toks, start) {
+        let fem = (gn | gn0) & (MS | MP) == 0;
+        return Some((6, k, if fem { FP } else { MP }));
+    }
     Some((if dmask & SING == 0 { 6 } else { 3 }, k, gn))
+}
+
+/// Le groupe du nom qui précède « et » juste avant `start` (« le chat » dans « le chat et le chien »).
+fn coordinated_with(lex: &Lexicon, toks: &[Token], start: usize) -> Option<(u8, usize, u8)> {
+    let et = start.checked_sub(1)?;
+    if toks[et].lower != "et" || toks[et].sent != toks[start].sent {
+        return None;
+    }
+    noun_group(lex, toks, et)
+}
+
+/// Début du sujet qui commence en `start`, en remontant les groupes coordonnés (« le chat et le chien »).
+fn subject_start(lex: &Lexicon, toks: &[Token], start: usize) -> usize {
+    match coordinated_with(lex, toks, start) {
+        Some(_) => subject_start(lex, toks, clause_start(toks, start - 1)),
+        None => start,
+    }
 }
 
 /// Genre-nombre du sujet du verbe être / avoir placé en `j` (« elle », « les filles », « nous »).
@@ -212,7 +235,7 @@ fn subject_gn(lex: &Lexicon, toks: &[Token], j: usize) -> Option<(u8, String)> {
         return Some((gn, w.to_string()));
     }
     let (_, k, gn) = noun_group(lex, toks, j)?;
-    let start = clause_start(toks, j);
+    let start = subject_start(lex, toks, clause_start(toks, j));
     let words: Vec<&str> = toks[start..=k].iter().map(|t| t.lower.as_str()).collect();
     Some((gn, words.join(" ")))
 }
@@ -494,6 +517,18 @@ fn missing_apostrophe(lex: &Lexicon, word: &str) -> Option<String> {
     {
         return None;
     }
+    // « j' » va avec la 1re personne (j'ai), « c' » avec la 3e (c'est), « s' » avec la 3e ou « il(s) »
+    // (s'est, s'il) : « on sai » n'est pas « on s'ai »
+    let person = |p: &[u8]| lex.lookup(&found).is_some_and(|e| p.iter().any(|p| e.has_person(*p)));
+    let fits = match first {
+        'j' => person(&[1]),
+        'c' => person(&[3, 6]),
+        's' => matches!(found.as_str(), "il" | "ils") || person(&[3, 6]),
+        _ => true,
+    };
+    if !fits {
+        return None;
+    }
     Some(format!("{first}'{found}"))
 }
 
@@ -670,7 +705,7 @@ fn qui_subject(lex: &Lexicon, toks: &[Token], i: usize) -> Option<(u8, usize)> {
 fn group_label(lex: &Lexicon, toks: &[Token], k: usize) -> String {
     match det_number(toks, k, lex) {
         Some((_, d)) if lex.lookup(&toks[k].lower).is_some_and(|e| e.top_tag() == "NOM") => {
-            toks[d..=k].iter().map(|t| t.lower.as_str()).collect::<Vec<_>>().join(" ")
+            toks[subject_start(lex, toks, d)..=k].iter().map(|t| t.lower.as_str()).collect::<Vec<_>>().join(" ")
         }
         _ => toks[k].lower.clone(),
     }
@@ -900,14 +935,28 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 continue; // nom propre
             }
             let h = hint(lex, toks, i);
+            // « Paul a faim », « paul mange » : un mot inconnu en tête de proposition, sans déterminant et
+            // suivi d'un verbe conjugué, est un prénom ; on ne le remplace pas par un nom commun (« pôle »)
+            let name_like = clause_start(toks, i) == i
+                && next.and_then(|n| lex.lookup(&n.lower)).is_some_and(|n| !n.verbs.is_empty() && n.is_finite());
+            let common_noun = |w: &str| name_like && lex.lookup(w).is_some_and(|e| e.top_tag() == "NOM");
             if let Some(words) = fused(lower) {
                 fix(words.into(), format!("Ce sont plusieurs mots : « {words} »."), "orthographe", true);
             } else if let Some((best, sure)) = lex.restore_accents(lower, &h) {
                 fix(best.clone(), format!("Attention aux accents : « {best} »."), "orthographe", sure);
             } else if let Some(fixed) = missing_apostrophe(lex, lower) {
                 fix(fixed.clone(), format!("Il manque une apostrophe : « {fixed} »."), "orthographe", true);
-            } else if let Some(sure) = lex.confident(lower, &h) {
-                fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", true);
+            } else if let Some(sure) = lex.confident(lower, &h).filter(|w| !common_noun(w)) {
+                // en tête de proposition, un nom commun remplacerait peut-être un prénom : on attend le mot
+                // suivant pour le corriger tout seul (« mezon de campagne » oui, « paul a faim » non)
+                // (seulement s'ils se prononcent pareil : « bonojur » est une faute de frappe, pas un prénom)
+                let wait = clause_start(toks, i) == i
+                    && next.is_none()
+                    && lex.lookup(&sure).is_some_and(|e| e.top_tag() == "NOM")
+                    && same_sound(lower, &sure);
+                fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", !wait);
+            } else if name_like {
+                // un prénom : rien à proposer
             } else if let Some(words) = split_words(lex, lower).filter(|_| !capital) {
                 fix(words.clone(), format!("Il manque une espace : « {words} »."), "orthographe", true);
             } else if let Some(sure) = liaison(lex, prev, lower).and_then(|w| lex.confident(w, &h)) {
@@ -941,6 +990,8 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             .iter()
             .take_while(|n| n.sent == t.sent)
             .find(|n| !ADVERBS.contains(&n.lower.as_str()))
+            // un déterminant (« mon », « ce ») est noté adjectif par Lexique : il ne compte pas
+            .filter(|n| det_gn(&n.lower).is_none())
             .and_then(|n| lex.lookup(&n.lower));
         match lower {
             "a" if subj.is_none()
@@ -1245,6 +1296,8 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                         None => true,
                         Some((p, k)) => {
                             matches!(toks[k].lower.as_str(), "moi" | "toi" | "lui" | "elle" | "nous" | "vous" | "eux" | "elles")
+                                // « le chat et le chien » : pluriel sûr, même si chaque nom est au singulier
+                                || (p == 6 && subject_start(lex, toks, clause_start(toks, k)) != clause_start(toks, k))
                                 || lex.lookup(&toks[k].lower).is_some_and(|n| {
                                     if p == 6 { n.gn & PLUR != 0 } else { n.gn & SING != 0 }
                                 })
@@ -1312,10 +1365,13 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 let reflexive = (clause_start(toks, j)..j).any(|k| matches!(toks[k].lower.as_str(), "se" | "s'" | "me" | "m'" | "te" | "t'"))
                     || (j >= 2 && matches!(toks[j - 1].lower.as_str(), "nous" | "vous") && matches!(toks[j - 2].lower.as_str(), "nous" | "vous"));
                 let det_after = next.is_some_and(|n| det_gn(&n.lower).is_some());
+                // tant que la suite n'est pas tapée, on ne sait pas si un complément va venir (« lavé | les mains ») :
+                // on propose sans corriger tout seul
+                let pending = reflexive && next.is_none() && !matches!(after, Some('.' | '!' | '?' | ',' | ';' | ':'));
                 if let Some((need, who)) = subject_gn(lex, toks, j).filter(|_| !(reflexive && det_after)) {
                     if e.gn & need == 0 {
                         if let Some(f) = agree(lex, lower, need) {
-                            fix(f.clone(), format!("Avec « {who} » et le verbe être, on accorde au {} : « {f} ».", gn_name(need)), "accord", true);
+                            fix(f.clone(), format!("Avec « {who} » et le verbe être, on accorde au {} : « {f} ».", gn_name(need)), "accord", !pending);
                             continue;
                         }
                     }
@@ -1385,9 +1441,10 @@ fn agree(lex: &Lexicon, w: &str, need: u8) -> Option<String> {
         if w.ends_with("eau") {
             c.push(format!("{w}x"));
         }
-        if !w.ends_with(['s', 'x']) {
-            c.push(format!("{w}s"));
-        }
+    }
+    // le pluriel d'un mot déjà au bon genre : « partie » -> « parties », « gentil » -> « gentils »
+    if need & (MP | FP) != 0 && !w.ends_with(['s', 'x']) {
+        c.push(format!("{w}s"));
     }
     if need & (MS | MP) == 0 {
         // le féminin : tous les modèles possibles, le dictionnaire dit lequel existe

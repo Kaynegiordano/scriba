@@ -43,6 +43,21 @@ const BOTH_NUMBERS = new Set("cours fois".split(" "));
 const GENDER_OF = new Map();
 for (const [g, list] of Object.entries(NOUN_GENDER)) for (const w of list.split(" ")) GENDER_OF.set(w, g);
 
+// Noms à deux genres (« livre », « livres ») : Lexique ne donne pas non plus leur nombre. On le déduit
+// de la terminaison, sinon « trois livre » ne serait pas corrigé : sans -s/-x/-z c'est un singulier ;
+// avec, un pluriel si le mot sans sa dernière lettre est aussi un nom, sinon les deux (« souris », « prix »).
+const NOMS = new Set();
+for (let i = 1; i < lines.length; i++) {
+  const f = lines[i].split("\t");
+  if (f[C.cgram] === "NOM") NOMS.add(f[C.ortho]);
+}
+function nounNumber(ortho, nombre) {
+  if (BOTH_NUMBERS.has(ortho)) return "";
+  if (nombre) return nombre;
+  if (!/[sxz]$/.test(ortho)) return "s";
+  return NOMS.has(ortho.slice(0, -1)) ? "p" : "";
+}
+
 const words = new Map();
 for (let i = 1; i < lines.length; i++) {
   const f = lines[i].split("\t");
@@ -63,7 +78,7 @@ for (let i = 1; i < lines.length; i++) {
   if (cg) w.tags.set(cg, (w.tags.get(cg) || 0) + fr);
   if (cg !== "VER" && cg !== "AUX" || f[C.genre] || f[C.nombre]) {
     const genre = f[C.genre] || (cg === "NOM" && GENDER_OF.get(ortho)) || "";
-    if (cg !== "ADV" && cg !== "PRE" && cg !== "CON" && cg !== "ONO") w.gn |= gnMask(genre, cg === "NOM" && BOTH_NUMBERS.has(ortho) ? "" : f[C.nombre]);
+    if (cg !== "ADV" && cg !== "PRE" && cg !== "CON" && cg !== "ONO") w.gn |= gnMask(genre, cg === "NOM" ? nounNumber(ortho, f[C.nombre]) : f[C.nombre]);
   }
   if ((cg === "VER" || cg === "AUX") && f[C.infover]) {
     const lem = f[C.lemme];

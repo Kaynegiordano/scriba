@@ -464,6 +464,8 @@ impl Lexicon {
             .same_letters(typed)
             .into_iter()
             .filter(|e| e.word != typed)
+            // on ajoute des accents, on n'enlève pas ceux qui ont été tapés (« idé » n'est pas « ide »)
+            .filter(|e| e.word.chars().zip(typed.chars()).all(|(w, t)| w == t || fold(&t.to_string()) == t.to_string()))
             .map(|e| {
                 let mut s = e.weight + Self::adjust(e, hint);
                 // juste après un sujet (« ça », « il »), un mot qui ne peut pas être un verbe est improbable
@@ -549,7 +551,12 @@ impl Lexicon {
             // juste après « ils » : un verbe conjugué à la bonne personne, pas un infinitif
             if e.has_person(p) {
                 s += 2.0;
-            } else if !e.verbs.is_empty() && !hint.participle && !hint.infinitive {
+            // après un groupe du nom (« un livre intéress… »), un participe employé comme adjectif reste possible
+            } else if !e.verbs.is_empty()
+                && !hint.participle
+                && !hint.infinitive
+                && (hint.pronoun || e.is_finite() || !e.has_tag("ADJ"))
+            {
                 s -= 4.0;
             }
         }
@@ -571,15 +578,19 @@ impl Lexicon {
             s += 3.0;
         }
         if let Some(n) = hint.number {
-            if matches!(e.top_tag(), "NOM" | "ADJ") && e.gn != 0 {
+            // « devoir » est surtout un verbe, mais aussi un nom : c'est le nom qui compte ici
+            let nominal = e.has_tag("NOM") || e.has_tag("ADJ");
+            if nominal && e.gn != 0 {
                 s += if e.gn & n != 0 { 0.8 } else { -1.5 };
             }
             // juste après « le », « la », « mon »… : un nom ou un adjectif, pas un verbe
             if hint.person.is_none() && !hint.infinitive {
-                s += match e.top_tag() {
-                    "NOM" | "ADJ" => 2.5,
-                    "VER" | "AUX" => -2.0,
-                    _ => 0.0,
+                s += if nominal {
+                    2.5
+                } else if verb_first {
+                    -2.0
+                } else {
+                    0.0
                 };
             }
         }
@@ -614,7 +625,8 @@ impl Lexicon {
                     // même prononciation exacte (« pleu » : pleut, pas plaît)
                     let exact = exact.iter().any(|p| **p == *e.pron);
                     let s = e.weight + Self::adjust(e, hint) - if noun_after_subject { 2.5 } else { 0.0 }
-                        + if exact { 2.0 } else { 0.0 };
+                        + if exact { 2.0 } else { 0.0 }
+                        + if silent_end(&fold(&e.word), &folded) { 2.0 } else { 0.0 };
                     let old = cands.entry(*idx).or_insert(f32::MIN);
                     *old = old.max(s);
                 }
@@ -632,6 +644,14 @@ impl Lexicon {
         }
         let mut ranked: Vec<(u32, f32)> = cands.into_iter().collect();
         ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        // un mot courant qui se prononce exactement comme ce qui a été tapé (« pleu » : pleut) passe
+        // devant ceux qui s'en approchent seulement (plaît), s'il n'est pas beaucoup moins probable
+        let is_exact = |i: u32| exact.iter().any(|p| **p == *self.entries[i as usize].pron);
+        if let (Some(top), Some(ex)) = (ranked.first().copied(), ranked.iter().find(|(i, _)| is_exact(*i)).copied()) {
+            if top.1 - ex.1 <= 3.0 && self.entries[ex.0 as usize].weight >= 2.0 {
+                ranked.retain(|(i, _)| is_exact(*i));
+            }
+        }
         let best = ranked.first()?;
         // un pluriel ou un féminin du même mot (maison / maisons) n'est pas un vrai concurrent
         let best_folded = fold(&self.entries[best.0 as usize].word);
@@ -645,8 +665,10 @@ impl Lexicon {
         // dans la même famille (enfant / enfants), le plus proche de ce qui a été tapé
         let closest = ranked
             .iter()
-            .filter(|(i, _)| {
-                *i == best.0 || one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes())
+            // (un parent bien moins probable, comme « intéressât » pour « intéressant », n'en fait pas partie)
+            .filter(|(i, s)| {
+                *i == best.0
+                    || (best.1 - s < 2.0 && one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()))
             })
             .min_by(|a, b| {
                 let ctx = |i: u32| Self::adjust(&self.entries[i as usize], hint);
@@ -762,6 +784,12 @@ impl Lexicon {
         let _ = max;
         ranked
     }
+}
+
+/// `word` = `typed` + une ou deux lettres muettes de fin oubliées (« pleu » -> pleut, « intéressan » -> intéressant).
+fn silent_end(word: &str, typed: &str) -> bool {
+    word.strip_prefix(typed)
+        .is_some_and(|rest| (1..=2).contains(&rest.len()) && rest.chars().all(|c| matches!(c, 't' | 's' | 'd' | 'x' | 'p')))
 }
 
 /// Formes du verbe aller : après « je » + un mot qui se prononce « vé », « à » derrière -> « vais ».

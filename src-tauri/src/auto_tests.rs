@@ -297,14 +297,16 @@ fn sans_accents() {
         ("il y a une tache sur la chemise", "il y a une tache sur la chemise"),
         ("j'ai une tache sur ma chemise", "j'ai une tache sur ma chemise"),
         ("c'est ma tache de devoirs", "c'est ma tâche de devoirs"),
-        ("les fruits sont mur", "les fruits sont mûr"),
+        // l'accent, puis l'accord avec « les fruits »
+        ("les fruits sont mur", "les fruits sont mûrs"),
         ("le mur de la maison", "le mur de la maison"),
         ("bien sur", "bien sûr"),
         ("bien sur que oui", "bien sûr que oui"),
         ("je suis sur de moi", "je suis sûr de moi"),
         ("le chat est sur la table", "le chat est sur la table"),
         ("il habite a cote de chez moi", "il habite à côté de chez moi"),
-        ("on mange des pates a la sauce", "on mange des pâtes a la sauce"),
+        // la phrase a déjà son verbe : « a » est la préposition « à »
+        ("on mange des pates a la sauce", "on mange des pâtes à la sauce"),
     ];
     for (input, want) in cases {
         let got = run(input);

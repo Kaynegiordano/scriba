@@ -115,6 +115,16 @@ const FAUTES: &[(&str, &str)] = &[
     ("on a fini nos devoir ", "on a fini nos devoirs "),
     ("une foi ", "une fois "),
     ("ses amis sont gentil.", "ses amis sont gentils."),
+    // sujets coordonnés, accents tapés, e muet
+    ("le chat et le chien joue.", "le chat et le chien jouent."),
+    ("le garçon et la fille sont gentil.", "le garçon et la fille sont gentils."),
+    ("la fille et sa mère sont partie.", "la fille et sa mère sont parties."),
+    ("les filles sont gentil.", "les filles sont gentilles."),
+    ("une bonne idé ", "une bonne idée "),
+    ("le telefone sonne.", "le téléphone sonne."),
+    ("il sai nager.", "il sait nager."),
+    ("elles se sont lavé ensemble.", "elles se sont lavées ensemble."),
+    ("Mezon de campagne ", "Maison de campagne "),
 ];
 
 /// Phrases justes : rien ne doit bouger.
@@ -252,6 +262,14 @@ const JUSTES: &[&str] = &[
     "Une fleur rouge. ",
     "Un grand merci. ",
     "Une grande fête. ",
+    // prénoms en tête de phrase, coordinations
+    "Léa mange une pomme. ",
+    "Hugo et Paul jouent. ",
+    "Marc a faim. ",
+    "Il mange une pomme et le chien aboie. ",
+    "Le chat mange et le chien dort. ",
+    "Les chats et les chiens jouent. ",
+    "Ils se sont lavés. ",
 ];
 
 #[test]
@@ -290,17 +308,18 @@ fn eval() {
     for a in &abimes {
         println!("  ABÎMÉ {a}");
     }
-    let strict = std::env::var("SCRIBA_EVAL_STRICT").is_ok();
-    if strict {
-        assert!(abimes.is_empty());
-    }
+    // le banc est complet : toute régression fait échouer les tests
+    assert!(ko.is_empty() && abimes.is_empty(), "{} fautes ratées, {} phrases justes abîmées", ko.len(), abimes.len());
 }
 
 #[test]
 fn debug_eval() {
-    for s in ["je mangeait ", "on mangent ", "je veu ", "tu mangeait "] {
+    // SCRIBA_DEBUG="phrase 1|phrase 2" pour examiner d'autres phrases
+    let env = std::env::var("SCRIBA_DEBUG").unwrap_or_else(|_| "je mangeait |on mangent |je veu |tu mangeait ".into());
+    for s in env.split('|') {
         let chars: Vec<char> = s.chars().collect();
-        println!("{s:?} check -> {:?}", crate::grammar::check(lex(), &chars).iter().map(|c| (c.original.clone(), c.replacement.clone(), c.auto)).collect::<Vec<_>>());
+        println!("{s:?} check -> {:?}", crate::grammar::check(lex(), &chars).iter().map(|c| (c.original.clone(), c.replacement.clone(), c.auto, c.reason.clone())).collect::<Vec<_>>());
+        println!("   tape -> {:?}", tape(s));
         let chars: Vec<char> = s.trim_end().chars().collect();
         println!("   auto -> {:?}", auto_fixes(lex(), &chars, ' ', custom::FULL).iter().map(|c| (c.original.clone(), c.replacement.clone())).collect::<Vec<_>>());
     }
