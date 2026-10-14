@@ -27,6 +27,8 @@ pub fn phonemes(word: &str, final_rules: bool) -> String {
         }
     }
 
+    // un e muet retiré à la fin : le n / m qui le précédait n'est pas nasal (« bonne », « téléphone »)
+    let mut mute_e = false;
     if final_rules && s.len() > 2 {
         let n = s.len();
         if (n > 3 && s.ends_with(&['e', 'r'])) || s.ends_with(&['e', 'z']) || s.ends_with(&['e', 'd']) {
@@ -41,6 +43,7 @@ pub fn phonemes(word: &str, final_rules: bool) -> String {
             }
             if s.len() > 2 && s.last() == Some(&'e') {
                 s.pop();
+                mute_e = true;
             }
         }
     }
@@ -50,7 +53,7 @@ pub fn phonemes(word: &str, final_rules: bool) -> String {
     let at = |k: usize| s.get(k).copied();
     let has = |i: usize, p: &str| p.chars().enumerate().all(|(j, c)| at(i + j) == Some(c));
     // Une voyelle nasale n'existe que si n/m n'est pas suivi d'une voyelle ou d'un autre n/m.
-    let nasal = |k: usize| !at(k).is_some_and(|c| is_vowel(c) || c == 'n' || c == 'm');
+    let nasal = |k: usize| !at(k).is_some_and(|c| is_vowel(c) || c == 'n' || c == 'm') && !(mute_e && k == n);
 
     let mut out = String::with_capacity(n + 2);
     let mut i = 0;
@@ -246,5 +249,9 @@ mod tests {
         assert_eq!(k("mangeait"), key("m@ZE"));
         assert_eq!(k("ospital"), key("ospital"));
         assert_eq!(k("nation"), key("nasj§"));
+        assert_eq!(k("telefone"), key("telefOn"));
+        assert_eq!(k("bonne"), key("bOn"));
+        assert_eq!(k("semaine"), key("s°mEn"));
+        assert_eq!(k("bon"), key("b§"));
     }
 }
