@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod auto_tests;
+mod autostart;
 mod clipboard;
 mod conj;
 mod custom;
@@ -13,6 +14,8 @@ mod inject;
 mod lexicon;
 mod phonetics;
 mod pictos;
+mod uia;
+mod updater;
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -108,6 +111,45 @@ fn settings() -> Settings {
 #[tauri::command]
 fn picto_data(id: u32) -> Option<String> {
     pictos::data_url(id)
+}
+
+/// Cherche une mise à jour ; `quiet` : ne dit rien s'il n'y en a pas (vérification automatique).
+fn run_update_check(app: &AppHandle, quiet: bool) {
+    if !updater::available() {
+        if !quiet {
+            let _ = app.emit("update", updater::failed("Version de développement : pas de mise à jour automatique."));
+        }
+        return;
+    }
+    match updater::check() {
+        Ok(s) if s.state == "available" || !quiet => {
+            let _ = app.emit("update", s);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            if !quiet {
+                let _ = app.emit("update", updater::failed(e));
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn check_update(app: AppHandle) {
+    std::thread::spawn(move || run_update_check(&app, false));
+}
+
+#[tauri::command]
+fn install_update(app: AppHandle) {
+    std::thread::spawn(move || {
+        let _ = app.emit("update", updater::downloading(""));
+        match updater::install(true) {
+            Ok(()) => app.exit(0),
+            Err(e) => {
+                let _ = app.emit("update", updater::failed(e));
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -279,7 +321,8 @@ fn open_conj(tx: State<Tx>) {
 
 #[tauri::command]
 fn conj_table(verb: String) -> Option<Table> {
-    conjugator().conjugate(verb.trim())
+    let (base, pronominal) = Conjugator::split_pronominal(&verb);
+    conjugator().conjugate(base, pronominal)
 }
 
 #[derive(Serialize)]
@@ -294,6 +337,7 @@ struct Choice {
 #[tauri::command]
 fn conj_search(query: String) -> Vec<Choice> {
     let q = query.trim().to_lowercase();
+    let q = Conjugator::split_pronominal(&q).0.to_string();
     let (lex, conj) = (lex(), conjugator());
     let mut out: Vec<Choice> = Vec::new();
     let mut push = |verb: &str, hint: String| {
@@ -532,6 +576,15 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
             }
             Msg::Auto(a) => {
+                // champ de mot de passe d'un navigateur : on ne corrige rien, on retape seulement la touche avalée
+                if hook::target_is_browser() && uia::focused_is_password() {
+                    let term: String = a.text.chars().last().into_iter().collect();
+                    hook::set_tail(0, &term, false);
+                    inject::replace(0, &term);
+                    refresh(&sentence, &mut typed, &mut items, &mut fix);
+                    hook::finish_hold();
+                    continue;
+                }
                 // on retape depuis le premier mot corrigé ; l'espace (ou la ponctuation) avalée est retapée aussi
                 hook::set_tail(a.erase, &a.text, false);
                 inject::replace(a.erase, &a.text);
@@ -586,6 +639,9 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--update") {
+        std::process::exit(updater::run_cli());
+    }
     // Une seule instance (deux hooks clavier se marcheraient dessus)
     let name: Vec<u16> = "Local\\Scriba.Instance\0".encode_utf16().collect();
     unsafe {
@@ -596,6 +652,7 @@ fn main() {
     }
 
     custom::load();
+    updater::cleanup();
     let (tx, rx) = channel::<Msg>();
     let hook_tx = tx.clone();
     let tray_tx = tx.clone();
@@ -604,7 +661,7 @@ fn main() {
         .manage(Tx(tx))
         .invoke_handler(tauri::generate_handler![
             pick, apply_fix, learn, toggle, open_conj, open_calc, conj_table, conj_search, get_settings, set_audio, open_reader,
-            reading_text, syllabify, clipboard_text, picto_data
+            reading_text, syllabify, clipboard_text, picto_data, check_update, install_update
         ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("fenêtre principale");
@@ -654,6 +711,10 @@ fn main() {
             let calc_item = MenuItem::with_id(app, "calc", "Calculatrice   Ctrl+Alt+K", true, None::<&str>)?;
             let audio_item = CheckMenuItem::with_id(app, "audio", "Lecture audio des mots", true, custom::audio(), None::<&str>)?;
             let _ = AUDIO_ITEM.set(audio_item.clone());
+            let autostart_item =
+                CheckMenuItem::with_id(app, "autostart", "Démarrer avec Windows", true, autostart::enabled(), None::<&str>)?;
+            let update_item = MenuItem::with_id(app, "update", "Rechercher une mise à jour…", true, None::<&str>)?;
+            let version_item = MenuItem::with_id(app, "version", format!("Scriba {}", updater::VERSION), false, None::<&str>)?;
             let p = custom::pictos();
             let picto_items = [
                 CheckMenuItem::with_id(app, "picto0", "Désactivés", true, p == 0, None::<&str>)?,
@@ -664,7 +725,10 @@ fn main() {
                 Submenu::with_items(app, "Pictogrammes", true, &[&picto_items[0], &picto_items[1], &picto_items[2]])?;
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &quit_item],
+                &[
+                    &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item,
+                    &update_item, &version_item, &quit_item,
+                ],
             )?;
             let menu_tx = tray_tx.clone();
             TrayIconBuilder::new()
@@ -686,6 +750,15 @@ fn main() {
                         let _ = menu_tx.send(Msg::Calc);
                     }
                     "audio" => apply_audio(app, !custom::audio()),
+                    "autostart" => {
+                        let on = !autostart::enabled();
+                        autostart::set(on);
+                        let _ = autostart_item.set_checked(autostart::enabled());
+                    }
+                    "update" => {
+                        let app = app.clone();
+                        std::thread::spawn(move || run_update_check(&app, false));
+                    }
                     id @ ("picto0" | "picto1" | "picto2") => {
                         let m = id.as_bytes()[5] - b'0';
                         custom::set_pictos(m);
@@ -711,6 +784,15 @@ fn main() {
                 })
                 .build(app)?;
 
+            // vérification discrète 30 s après le démarrage, puis toutes les 6 heures
+            let updates = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(30));
+                loop {
+                    run_update_check(&updates, true);
+                    std::thread::sleep(Duration::from_secs(6 * 3600));
+                }
+            });
             let handle = app.handle().clone();
             std::thread::spawn(move || worker(handle, rx));
             hook::start(hook_tx);

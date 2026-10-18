@@ -1,6 +1,6 @@
 [package]
 name = "scriba"
-version = "0.1.2"
+version = "1.0.0"
 description = "Scriba — aide à l'écriture"
 edition = "2021"
 
@@ -25,7 +25,9 @@ windows-sys = { version = "0.59", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_TextServices",
+  "Win32_System_Registry",
 ] }
+windows = { version = "0.61", features = ["Win32_System_Com", "Win32_UI_Accessibility", "Win32_Foundation"] }
 
 [profile.release]
 opt-level = 3

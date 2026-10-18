@@ -72,6 +72,8 @@ struct State {
     writing: bool,
     /// la correction automatique a le droit de s'appliquer dans cette fenêtre
     corrects: bool,
+    /// navigateur : un champ de mot de passe doit être vérifié avant de corriger
+    browser: bool,
     /// dernière correction automatique, annulable par Retour arrière
     last_auto: Option<AutoFix>,
 }
@@ -84,6 +86,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     paused: false,
     writing: false,
     corrects: false,
+    browser: false,
     last_auto: None,
 });
 
@@ -298,6 +301,11 @@ pub fn target_is_writing_app() -> bool {
     STATE.lock().unwrap().writing
 }
 
+/// La fenêtre où l'on écrit est un navigateur.
+pub fn target_is_browser() -> bool {
+    STATE.lock().unwrap().browser
+}
+
 pub fn current_sentence() -> String {
     STATE.lock().unwrap().sentence.iter().collect()
 }
@@ -481,6 +489,7 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         let exe = exe_name(fg as HWND);
         st.writing = WRITING_APPS.contains(&exe.as_str());
         // une fenêtre dont on ne peut pas lire le nom est souvent lancée en administrateur : la frappe n'y passe pas
+        st.browser = crate::uia::BROWSERS.contains(&exe.as_str());
         st.corrects = st.writing || (!exe.is_empty() && !NO_AUTO_APPS.contains(&exe.as_str()));
         st.last_auto = None;
         clear(&mut st);

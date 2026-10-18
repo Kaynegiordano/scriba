@@ -71,6 +71,8 @@ const FAUTES: &[(&str, &str)] = &[
     ("le chat à mangé ", "le chat a mangé "),
     ("il mange des pates a la sauce ", "il mange des pâtes à la sauce "),
     ("je joue a la console ", "je joue à la console "),
+    ("les enfants ont mangé des pates a la sauce ", "les enfants ont mangé des pâtes à la sauce "),
+    ("mon frère mange des pates a la sauce ", "mon frère mange des pâtes à la sauce "),
     ("ces un chat ", "c'est un chat "),
     ("ces pour toi ", "c'est pour toi "),
     ("ces quoi ", "c'est quoi "),
@@ -324,3 +326,4 @@ fn debug_eval() {
         println!("   auto -> {:?}", auto_fixes(lex(), &chars, ' ', custom::FULL).iter().map(|c| (c.original.clone(), c.replacement.clone())).collect::<Vec<_>>());
     }
 }
+

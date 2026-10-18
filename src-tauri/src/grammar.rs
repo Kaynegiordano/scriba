@@ -665,7 +665,7 @@ fn split_words(lex: &Lexicon, w: &str) -> Option<String> {
 fn clause_has_verb(lex: &Lexicon, toks: &[Token], i: usize) -> bool {
     (clause_start(toks, i)..i).any(|j| {
         lex.lookup(&toks[j].lower).is_some_and(|e| e.is_finite() && matches!(e.top_tag(), "VER" | "AUX"))
-            && subject_before(toks, j).is_some()
+            && (subject_before(toks, j).is_some() || noun_subject(lex, toks, j).is_some())
     })
 }
 

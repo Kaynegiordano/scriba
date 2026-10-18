@@ -314,3 +314,53 @@ body,
     transform: none;
   }
 }
+
+.update {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  max-width: 300px;
+  padding: 5px 12px 5px 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  background: var(--chip);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  animation: pop 0.18s ease-out both;
+}
+
+.update .mark {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.update .meta {
+  color: var(--accent);
+}
+
+.update.uptodate,
+.update.downloading {
+  border-color: var(--border);
+  cursor: default;
+}
+
+.update.uptodate .mark,
+.update.downloading .mark {
+  color: var(--ok);
+}
+
+.update.error {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+  cursor: default;
+}
+
+.update.error .mark {
+  color: var(--warn);
+}
+
+.update:not(:disabled):hover {
+  filter: brightness(1.12);
+}

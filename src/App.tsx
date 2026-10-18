@@ -7,6 +7,7 @@ type Suggestion = { word: string; tag: string; info: string; picto: number | nul
 type Fix = { from: string; to: string; reason: string; kind: string; learnable: boolean };
 type Notice = { from: string; to: string; reason: string; undone: boolean };
 type Payload = { typed: string; items: Suggestion[]; fix: Fix | null };
+type UpdateInfo = { state: "available" | "uptodate" | "error" | "downloading"; version: string; message: string; notes: string };
 type Settings = { auto: number; audio: boolean; pictos: number };
 
 const KIND_LABEL: Record<string, string> = {
@@ -21,6 +22,7 @@ export default function App() {
   const [items, setItems] = useState<Suggestion[]>([]);
   const [fix, setFix] = useState<Fix | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [audio, setAudio] = useState(false);
   const [pictoMode, setPictoMode] = useState(2);
   // images déjà connues : data URL (dans Scriba), adresse arasaac.org, ou null (pas d'image)
@@ -34,6 +36,7 @@ export default function App() {
       setFix(e.payload.fix);
     });
     const offAuto = listen<Notice>("auto", (e) => setNotice(e.payload));
+    const offUpdate = listen<UpdateInfo>("update", (e) => setUpdate(e.payload));
     const apply = (s: Settings) => {
       setAudio(s.audio);
       setPictoMode(s.pictos);
@@ -45,6 +48,7 @@ export default function App() {
     return () => {
       off.then((f) => f());
       offAuto.then((f) => f());
+      offUpdate.then((f) => f());
       offSettings.then((f) => f());
     };
   }, []);
@@ -55,6 +59,13 @@ export default function App() {
     const id = setTimeout(() => setNotice(null), notice.undone ? 3500 : 6000);
     return () => clearTimeout(id);
   }, [notice]);
+
+  // « à jour » et les erreurs disparaissent seules ; une mise à jour disponible reste jusqu'au clic
+  useEffect(() => {
+    if (!update || update.state === "available" || update.state === "downloading") return;
+    const id = setTimeout(() => setUpdate(null), 6000);
+    return () => clearTimeout(id);
+  }, [update]);
 
   const keep = (e: React.MouseEvent) => e.preventDefault();
 
@@ -100,6 +111,25 @@ export default function App() {
       {fix?.learnable && (
         <button className="learn" onMouseDown={keep} onClick={() => invoke("learn")} title="Ce mot est correct : ne plus le signaler">
           <span className="fk">F8</span> Mot correct
+        </button>
+      )}
+
+      {update && (
+        <button
+          key={"update:" + update.state + update.version}
+          className={"update " + update.state}
+          onMouseDown={keep}
+          disabled={update.state !== "available"}
+          onClick={() => {
+            invoke("install_update");
+          }}
+          title={update.notes || update.message}
+        >
+          <span className="mark">{update.state === "available" ? "⬇" : update.state === "error" ? "!" : update.state === "downloading" ? "…" : "✓"}</span>
+          <span className="text">
+            <span className="w">{update.state === "available" ? `Scriba ${update.version}` : update.message}</span>
+            <span className="meta">{update.state === "available" ? "Cliquer pour installer et redémarrer" : ""}</span>
+          </span>
         </button>
       )}
 

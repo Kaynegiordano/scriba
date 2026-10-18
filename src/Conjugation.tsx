@@ -8,6 +8,7 @@ type Row = { person: number; pronoun: string; aux: string; form: string };
 type Tense = { mode: string; name: string; tip: string; rows: Row[] };
 type Table = {
   verb: string;
+  pronominal: boolean;
   group: string;
   aux: string;
   present_participle: string;
@@ -156,9 +157,16 @@ export default function Conjugation({ initial }: { initial: string }) {
       {table && (
         <main>
           <section className="verb-head">
-            <h1>{table.verb}</h1>
+            <h1>{table.pronominal ? (/^[aeiouyàâéèêîôûh]/i.test(table.verb) ? "s'" : "se ") + table.verb : table.verb}</h1>
             <div className="facts">
               <span className="pill">{table.group}</span>
+              <button
+                className={"pill toggle" + (table.pronominal ? " on" : "")}
+                onClick={() => load((table.pronominal ? "" : "se ") + table.verb)}
+                title="Voir le verbe à la forme pronominale (se laver) ou non"
+              >
+                forme pronominale
+              </button>
               <span className="pill">
                 auxiliaire <b>{table.aux}</b>
               </span>
