@@ -680,7 +680,8 @@ fn main() {
                 let y = (14.0 * scale) as i32;
                 SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
-            set_visible(true);
+            // démarre masquée par défaut : Ctrl+Alt+L ou un clic sur l'icône l'affiche
+            set_visible(!custom::start_hidden());
             // « Réduire tout » (Win+D, Win+M) ne doit pas faire disparaître la barre
             let bar = win.clone();
             win.on_window_event(move |e| {
@@ -713,6 +714,8 @@ fn main() {
             let _ = AUDIO_ITEM.set(audio_item.clone());
             let autostart_item =
                 CheckMenuItem::with_id(app, "autostart", "Démarrer avec Windows", true, autostart::enabled(), None::<&str>)?;
+            let hidden_item =
+                CheckMenuItem::with_id(app, "hidden", "Démarrer masqué", true, custom::start_hidden(), None::<&str>)?;
             let update_item = MenuItem::with_id(app, "update", "Rechercher une mise à jour…", true, None::<&str>)?;
             let version_item = MenuItem::with_id(app, "version", format!("Scriba {}", updater::VERSION), false, None::<&str>)?;
             let p = custom::pictos();
@@ -726,7 +729,7 @@ fn main() {
             let menu = Menu::with_items(
                 app,
                 &[
-                    &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item,
+                    &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item, &hidden_item,
                     &update_item, &version_item, &quit_item,
                 ],
             )?;
@@ -754,6 +757,10 @@ fn main() {
                         let on = !autostart::enabled();
                         autostart::set(on);
                         let _ = autostart_item.set_checked(autostart::enabled());
+                    }
+                    "hidden" => {
+                        custom::set_start_hidden(!custom::start_hidden());
+                        let _ = hidden_item.set_checked(custom::start_hidden());
                     }
                     "update" => {
                         let app = app.clone();
