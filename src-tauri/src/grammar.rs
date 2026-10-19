@@ -16,6 +16,8 @@ pub struct Token {
     pub sent: usize,
     /// numéro de proposition (coupée aussi par la virgule, les parenthèses, les guillemets)
     pub clause: usize,
+    /// collé au mot d'avant par un trait d'union (« puis-je », « dis-moi », « a-t-il »)
+    pub hyph: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -127,7 +129,8 @@ pub fn tokenize(lex: &Lexicon, chars: &[char]) -> Vec<Token> {
                 i += 1;
             }
             let text: String = chars[start..i].iter().map(|c| if is_apostrophe(*c) { '\'' } else { *c }).collect();
-            raw.push(Token { lower: text.to_lowercase(), text, start, end: i, sent, clause });
+            let hyph = start > 0 && chars[start - 1] == '-' && start > 1 && chars[start - 2].is_alphabetic();
+            raw.push(Token { lower: text.to_lowercase(), text, start, end: i, sent, clause, hyph });
             continue;
         }
         if matches!(c, '.' | '!' | '?' | ';' | ':') {
@@ -265,6 +268,10 @@ fn subject_before(toks: &[Token], i: usize) -> Option<(u8, usize)> {
         if t.sent != toks[i].sent {
             break;
         }
+        // « puis-je poser », « dis-moi » : le pronom après le trait d'union est le sujet du verbe d'avant
+        if t.hyph {
+            return None;
+        }
         if let Some(p) = subject_of(&t.lower) {
             // « ça » au milieu de la proposition (« ils ont fait ça ces mecs ») est un complément, pas un sujet
             if t.lower == "ça" && clause_start(toks, j) != j {
@@ -312,10 +319,16 @@ fn lemma_is(lex: &Lexicon, e: &Entry, names: &[&'static str]) -> Option<&'static
 
 /// Auxiliaire (avoir / être) conjugué juste avant le mot `i`, avec un sujet.
 fn aux_before<'a>(lex: &'a Lexicon, toks: &[Token], i: usize) -> Option<(&'static str, usize)> {
-    let j = prev_index(toks, i, ADVERBS)?;
+    let mut j = prev_index(toks, i, ADVERBS)?;
+    // « as-tu acheté », « a-t-il fini » : le sujet est inversé, l'auxiliaire est avant lui
+    let mut inverted = false;
+    while toks[j].hyph && j > 0 && subject_of(&toks[j].lower).or((toks[j].lower == "t").then_some(3)).is_some() {
+        j -= 1;
+        inverted = true;
+    }
     let e = lex.lookup(&toks[j].lower)?;
     let aux = lemma_is(lex, e, &["avoir", "être"])?;
-    if !e.is_finite() || (subject_before(toks, j).is_none() && noun_subject(lex, toks, j).is_none()) {
+    if !e.is_finite() || (!inverted && subject_before(toks, j).is_none() && noun_subject(lex, toks, j).is_none()) {
         return None;
     }
     Some((aux, j))
@@ -325,7 +338,11 @@ fn aux_before<'a>(lex: &'a Lexicon, toks: &[Token], i: usize) -> Option<(&'stati
 fn wants_infinitive(lex: &Lexicon, toks: &[Token], i: usize) -> Option<usize> {
     let mut skip: Vec<&str> = CLITICS.to_vec();
     skip.push("pas");
-    let j = prev_index(toks, i, &skip)?;
+    let mut j = prev_index(toks, i, &skip)?;
+    // « peux-tu fermer », « puis-je poser » : le verbe est avant le pronom inversé
+    while toks[j].hyph && j > 0 && subject_of(&toks[j].lower).is_some() {
+        j -= 1;
+    }
     let w = toks[j].lower.as_str();
     if PREPS.contains(&w) {
         // « à la console », « de la tarte » : « la » est un article, le mot peut être un nom
@@ -716,7 +733,8 @@ fn qui_subject(lex: &Lexicon, toks: &[Token], i: usize) -> Option<(u8, usize)> {
         return None;
     }
     let a = j.checked_sub(1)?;
-    if toks[a].clause != toks[j].clause {
+    // « dis-moi qui sont tes amis » : « moi » complément de « dis », pas le sujet de « qui »
+    if toks[a].clause != toks[j].clause || toks[a].hyph {
         return None;
     }
     let p = match toks[a].lower.as_str() {
@@ -1171,7 +1189,7 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 continue;
             }
             // « mon chien et mon chat ce battent » : devant un verbe (autre qu'être, avoir…), c'est « se »
-            "ce" if (matches!(prev, Some("il" | "elle" | "on" | "ils" | "elles"))
+            "ce" if ((matches!(prev, Some("il" | "elle" | "on" | "ils" | "elles")) && !toks[i - 1].hyph)
                 || next_entry.is_some_and(|n| {
                     matches!(n.top_tag(), "VER") && n.is_finite() && !n.is_participle()
                         && lemma_is(lex, n, &["être", "avoir", "pouvoir", "devoir", "falloir", "faire", "paraître", "sembler", "rester"]).is_none()
@@ -1376,13 +1394,15 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         }
 
         // 5. accord sujet-verbe : « ils mangent », « les chats dorment », « les enfants qui jouent »
-        let group_subj = if subj.is_none() && e.is_finite() && (verb_first || !e.has_tag("ADJ")) {
+        // « le patron lui a », « les fans lui demandent » : « lui », « leur » sont des pronoms, pas « luire »
+        let pronoun_word = e.top_tag() == "PRO" || CLITICS.contains(&lower);
+        let group_subj = if subj.is_none() && e.is_finite() && !pronoun_word && (verb_first || !e.has_tag("ADJ")) {
             noun_subj.or_else(|| qui_subject(lex, toks, i))
         } else {
             None
         };
         if let Some((p, k)) = subj.or(group_subj) {
-            if e.is_finite() && !e.has_person(p) && (verb_first || i == k + 1 || group_subj.is_some()) {
+            if e.is_finite() && !pronoun_word && !e.has_person(p) && (verb_first || i == k + 1 || group_subj.is_some()) {
                 let target = e
                     .verbs
                     .iter()
@@ -1527,8 +1547,11 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 let sent_start = toks[..j].iter().rposition(|x| x.sent != t.sent).map_or(0, |x| x + 1);
                 // « les pommes qu'il a mangées », « il les a mangés » : le complément est avant, on accorde
                 let subject = subject_before(toks, j).or_else(|| noun_subject(lex, toks, j)).map(|(_, k)| k);
-                let pronoun_object = subject.is_some_and(|k| {
-                    toks[k + 1..j].iter().any(|x| {
+                // « l'avez-vous entendue », « les as-tu vus » : sujet inversé, le pronom complément est en tête
+                let inverted = toks.get(j + 1).is_some_and(|x| x.hyph);
+                let from = if inverted { Some(sent_start) } else { subject.map(|k| k + 1) };
+                let pronoun_object = from.is_some_and(|k| {
+                    toks[k..j].iter().any(|x| {
                         matches!(x.lower.as_str(), "l'" | "le" | "la" | "les" | "me" | "m'" | "te" | "t'" | "nous" | "vous")
                     })
                 });

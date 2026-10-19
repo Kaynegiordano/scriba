@@ -305,6 +305,26 @@ const JUSTES: &[&str] = &[
     "Mes parents sont contents. ",
     "Je m'en vais. ",
     "Elle s'en va. ",
+    // sujet inversé, noms invariables en -s, « lui » pronom (banc Tatoeba)
+    "Puis-je poser des questions ? ",
+    "As-tu acheté ce livre ? ",
+    "Peux-tu fermer la porte ? ",
+    "Où es-tu allé dimanche dernier ? ",
+    "Suis-je obligé de faire un discours ? ",
+    "Sont-ils exposés tout au long de l'année ? ",
+    "Sait-il parler anglais ? ",
+    "Vas-tu oser lui poser des questions ? ",
+    "L'avez-vous entendue parler français ? ",
+    "Les avez-vous déjà vus arriver à l'heure ? ",
+    "Comment nomme-t-on ce poisson ? ",
+    "Dis-moi qui sont tes amis. ",
+    "Elle est à l'hôpital depuis un mois. ",
+    "Un bon fils est toujours soucieux. ",
+    "Avez-vous eu un fils ou une fille ? ",
+    "Le patron lui a avancé deux semaines de salaire. ",
+    "Les fans lui demandent un autographe. ",
+    "Il lui écrirait. ",
+    "Son courage lui valut la renommée. ",
 ];
 
 #[test]
