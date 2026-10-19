@@ -621,6 +621,23 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
                 hook::finish_hold();
             }
+            Msg::DoubleSpace => {
+                // champ de mot de passe d'un navigateur, ou phrase qui ne finit pas par « mot␠ » : on tape l'espace tel quel
+                let typed_ok = sentence.len() >= 2 && sentence[sentence.len() - 1] == ' ';
+                if !typed_ok || (hook::target_is_browser() && uia::focused_is_password()) {
+                    hook::set_tail(0, " ", false);
+                    inject::replace(0, " ");
+                    sentence.push(' ');
+                } else {
+                    // « mot␠ » -> « mot. » : l'espace tapée en premier est remplacée par « . »
+                    hook::set_tail(1, ". ", false);
+                    inject::replace(1, ". ");
+                    sentence.pop();
+                    sentence.extend(['.', ' ']);
+                }
+                refresh(&sentence, &mut typed, &mut items, &mut fix);
+                hook::finish_hold();
+            }
             Msg::Learn => {
                 if let Some(c) = fix.take() {
                     custom::add_word(&c.original);
@@ -714,6 +731,8 @@ fn main() {
             let _ = AUDIO_ITEM.set(audio_item.clone());
             let autostart_item =
                 CheckMenuItem::with_id(app, "autostart", "Démarrer avec Windows", true, autostart::enabled(), None::<&str>)?;
+            let space_item =
+                CheckMenuItem::with_id(app, "space", "Deux espaces = un point", true, custom::double_space(), None::<&str>)?;
             let hidden_item =
                 CheckMenuItem::with_id(app, "hidden", "Démarrer masqué", true, custom::start_hidden(), None::<&str>)?;
             let update_item = MenuItem::with_id(app, "update", "Rechercher une mise à jour…", true, None::<&str>)?;
@@ -729,7 +748,7 @@ fn main() {
             let menu = Menu::with_items(
                 app,
                 &[
-                    &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item, &hidden_item,
+                    &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item, &hidden_item, &space_item,
                     &update_item, &version_item, &quit_item,
                 ],
             )?;
@@ -757,6 +776,10 @@ fn main() {
                         let on = !autostart::enabled();
                         autostart::set(on);
                         let _ = autostart_item.set_checked(autostart::enabled());
+                    }
+                    "space" => {
+                        custom::set_double_space(!custom::double_space());
+                        let _ = space_item.set_checked(custom::double_space());
                     }
                     "hidden" => {
                         custom::set_start_hidden(!custom::start_hidden());

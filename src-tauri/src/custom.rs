@@ -1,6 +1,7 @@
 //! Réglages et dictionnaire personnel, enregistrés dans %APPDATA%\Scriba :
 //!   settings.txt      auto=0|1|2   (0 = aucune, 1 = orthographe, 2 = orthographe + grammaire)
 //!                     hidden=0|1   démarrer avec la barre masquée (1 par défaut)
+//!                     doublespace=0|1  deux espaces = un point (1 par défaut)
 //!                     audio=0|1    lecture à voix haute (désactivée par défaut)
 //!                     pictos=0|1|2 pictogrammes (0 = non, 1 = ceux du PC, 2 = + Internet pour les mots rares)
 //!   dictionnaire.txt  un mot par ligne (mot correct) ou « faux>juste » (correction refusée)
@@ -19,6 +20,7 @@ static MODE: AtomicU8 = AtomicU8::new(FULL);
 static AUDIO: AtomicBool = AtomicBool::new(false);
 static PICTOS: AtomicU8 = AtomicU8::new(2);
 static HIDDEN: AtomicBool = AtomicBool::new(true);
+static DOUBLE_SPACE: AtomicBool = AtomicBool::new(true);
 
 #[derive(Default)]
 struct Custom {
@@ -44,6 +46,9 @@ pub fn load() {
                 if let Ok(m) = v.trim().parse::<u8>() {
                     PICTOS.store(m.min(2), Ordering::Relaxed);
                 }
+            }
+            if let Some(v) = line.strip_prefix("doublespace=") {
+                DOUBLE_SPACE.store(v.trim() != "0", Ordering::Relaxed);
             }
             if let Some(v) = line.strip_prefix("hidden=") {
                 HIDDEN.store(v.trim() != "0", Ordering::Relaxed);
@@ -92,6 +97,15 @@ pub fn set_audio(on: bool) {
     save();
 }
 
+pub fn double_space() -> bool {
+    DOUBLE_SPACE.load(Ordering::Relaxed)
+}
+
+pub fn set_double_space(on: bool) {
+    DOUBLE_SPACE.store(on, Ordering::Relaxed);
+    save();
+}
+
 pub fn start_hidden() -> bool {
     HIDDEN.load(Ordering::Relaxed)
 }
@@ -116,7 +130,7 @@ fn save() {
     }
     if let Some(d) = dir() {
         let _ = std::fs::create_dir_all(&d);
-        let _ = std::fs::write(d.join("settings.txt"), format!("auto={}\naudio={}\npictos={}\nhidden={}\n", mode(), u8::from(audio()), pictos(), u8::from(start_hidden())));
+        let _ = std::fs::write(d.join("settings.txt"), format!("auto={}\naudio={}\npictos={}\nhidden={}\ndoublespace={}\n", mode(), u8::from(audio()), pictos(), u8::from(start_hidden()), u8::from(double_space())));
     }
 }
 

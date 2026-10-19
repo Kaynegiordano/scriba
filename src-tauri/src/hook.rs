@@ -38,6 +38,8 @@ pub enum Msg {
     Read,
     /// ouvrir la calculatrice (Ctrl+Alt+K)
     Calc,
+    /// deux espaces de suite après un mot : « mot␠ » devient « mot. » (comme sur un smartphone)
+    DoubleSpace,
 }
 
 #[derive(Clone)]
@@ -74,6 +76,8 @@ struct State {
     corrects: bool,
     /// navigateur : un champ de mot de passe doit être vérifié avant de corriger
     browser: bool,
+    /// instant de la dernière frappe d'espace (double espace = point)
+    last_space: u64,
     /// dernière correction automatique, annulable par Retour arrière
     last_auto: Option<AutoFix>,
 }
@@ -87,6 +91,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     writing: false,
     corrects: false,
     browser: false,
+    last_space: 0,
     last_auto: None,
 });
 
@@ -583,6 +588,19 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     };
 
     let dead = st.dead.take();
+    if ch == Some(' ') {
+        let now = now_ms();
+        let quick = now.saturating_sub(st.last_space) < 700;
+        st.last_space = now;
+        let n = st.sentence.len();
+        let after_word = n >= 2 && st.sentence[n - 1] == ' ' && st.sentence[n - 2].is_alphanumeric();
+        // deux espaces de suite après un mot : un point (jamais dans un terminal, un éditeur de code ou un jeu)
+        if quick && after_word && st.corrects && no_mods && crate::custom::double_space() {
+            begin_hold();
+            send(Msg::DoubleSpace);
+            return true;
+        }
+    }
     if let Some(c) = ch {
         if is_terminator(c) && st.corrects && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
             if let Some(fix) = auto_candidate(&st, fg, c) {
