@@ -166,6 +166,8 @@ pub struct Hint {
     pub number: Option<u8>,
     /// le sujet est un pronom (je, il…) : juste après lui, on attend un verbe
     pub pronoun: bool,
+    /// l'auxiliaire est « être » (un adjectif convient aussi : « ils sont contents »)
+    pub etre: bool,
     /// le mot suivant est « à », « au », « en », « chez »… (« je vais à la plage »)
     pub to: bool,
 }
@@ -438,6 +440,18 @@ impl Lexicon {
         Lexicon { entries, by_ortho, by_phon, lemmas, conj }
     }
 
+    /// Les `n` mots les plus fréquents (lettres seulement, 4 lettres ou plus) : pour les bancs d'essai.
+    #[cfg(test)]
+    pub fn top_words(&self, n: usize) -> Vec<String> {
+        let mut v: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|e| e.word.chars().count() >= 4 && e.word.chars().all(|c| c.is_alphabetic()))
+            .collect();
+        v.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+        v.into_iter().take(n).map(|e| e.word.clone()).collect()
+    }
+
     /// Le mot exact (minuscules), s'il existe.
     pub fn lookup(&self, word: &str) -> Option<&Entry> {
         let lower = word.to_lowercase();
@@ -486,7 +500,12 @@ impl Lexicon {
         if Self::verb_expected(hint) && best.0.verbs.is_empty() {
             return None;
         }
-        let sure = scored.get(1).is_none_or(|next| best.1 - next.1 >= 3.0);
+        // après « un », « le »… un nom ou un adjectif (téléphone) bat un verbe (téléphoné) à moins d'écart
+        let noun_wins = hint.number.is_some()
+            && matches!(best.0.top_tag(), "NOM" | "ADJ")
+            && scored.get(1).is_some_and(|next| matches!(next.0.top_tag(), "VER" | "AUX"));
+        let margin = if noun_wins { 1.0 } else { 3.0 };
+        let sure = scored.get(1).is_none_or(|next| best.1 - next.1 >= margin);
         Some((best.0.word.clone(), sure))
     }
 
@@ -561,7 +580,7 @@ impl Lexicon {
             }
         }
         if hint.participle {
-            if e.is_participle() {
+            if e.is_participle() || (hint.etre && e.top_tag() == "ADJ") {
                 s += 2.0;
             } else if verb_first {
                 s -= 3.0;
@@ -605,7 +624,11 @@ impl Lexicon {
         let letters = folded.chars().count();
         // un mot de deux lettres (« fé », « pe ») n'est corrigé que si la phrase attend un verbe (« je fé »)
         let expects_verb = hint.person.is_some() || hint.infinitive || hint.participle;
-        if letters < 2 || (letters == 2 && !expects_verb) {
+        // un mot de trois lettres ou moins (« por », « bin ») peut être beaucoup de choses : on n'y touche pas
+        // sauf si la phrase attend un verbe (« je fé »)
+        // (un accent tapé montre que l'élève vise un vrai mot : « idé » -> idée)
+        let accented = typed.chars().any(|c| fold(&c.to_string()) != c.to_string());
+        if letters < 2 || (letters <= 3 && !expects_verb && !accented) {
             return None;
         }
         let mut cands: HashMap<u32, f32> = HashMap::new();
@@ -624,21 +647,25 @@ impl Lexicon {
                     let noun_after_subject = Self::verb_expected(hint) && e.verbs.is_empty();
                     // même prononciation exacte (« pleu » : pleut, pas plaît)
                     let exact = exact.iter().any(|p| **p == *e.pron);
-                    let s = e.weight + Self::adjust(e, hint) - if noun_after_subject { 2.5 } else { 0.0 }
+                    // à son poids près, le mot le plus proche de ce qui a été tapé (« meileur » : meilleur)
+                    let near = 0.7 * edit_distance(fold(&e.word).as_bytes(), folded.as_bytes()) as f32;
+                    let s = e.weight + Self::adjust(e, hint) - near - if noun_after_subject { 2.5 } else { 0.0 }
                         + if exact { 2.0 } else { 0.0 }
                         + if silent_end(&fold(&e.word), &folded) { 2.0 } else { 0.0 };
+                    let s = s - if !typed.chars().any(|c| c != fold(&c.to_string()).chars().next().unwrap_or(c)) && fold(&e.word) != e.word.to_lowercase() { 1.0 } else { 0.0 };
                     let old = cands.entry(*idx).or_insert(f32::MIN);
                     *old = old.max(s);
                 }
             }
         }
-        if letters >= 7 {
+        let phonetic: Vec<u32> = cands.keys().copied().collect();
+        if letters >= 4 {
             let q = folded.as_bytes();
             for (k, idx) in &self.by_ortho {
                 // une faute de lettre compte moins qu'un mot qui se prononce pareil
                 if k.as_bytes().first() == q.first() && one_typo(k.as_bytes(), q) && !cands.contains_key(idx) {
                     let e = &self.entries[*idx as usize];
-                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - 2.5);
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - 1.5);
                 }
             }
         }
@@ -653,13 +680,17 @@ impl Lexicon {
             }
         }
         let best = ranked.first()?;
+        // un mot rare (« hugh » pour « hugo ») n'est pas une cible crédible d'une simple faute de frappe
+        if !phonetic.contains(&best.0) && self.entries[best.0 as usize].weight < 1.5 {
+            return None;
+        }
         // un pluriel ou un féminin du même mot (maison / maisons) n'est pas un vrai concurrent
         let best_folded = fold(&self.entries[best.0 as usize].word);
         let rival = ranked
             .iter()
             .skip(1)
             .find(|(i, _)| !one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()));
-        if rival.is_some_and(|r| best.1 - r.1 < 2.0) {
+        if rival.is_some_and(|r| best.1 - r.1 < if letters <= 4 { 3.0 } else { 2.0 }) {
             return None;
         }
         // dans la même famille (enfant / enfants), le plus proche de ce qui a été tapé

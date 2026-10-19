@@ -578,7 +578,7 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
             Msg::Auto(a) => {
                 // champ de mot de passe d'un navigateur : on ne corrige rien, on retape seulement la touche avalée
                 if hook::target_is_browser() && uia::focused_is_password() {
-                    let term: String = a.text.chars().last().into_iter().collect();
+                    let term: String = if a.enter { String::new() } else { a.text.chars().last().into_iter().collect() };
                     hook::set_tail(0, &term, false);
                     inject::replace(0, &term);
                     refresh(&sentence, &mut typed, &mut items, &mut fix);

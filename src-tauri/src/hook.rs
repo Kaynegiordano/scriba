@@ -53,6 +53,8 @@ pub struct AutoFix {
     /// (avant, après, type) pour chaque mot corrigé
     pub pairs: Vec<(String, String, &'static str)>,
     pub reason: String,
+    /// la correction a été déclenchée par Entrée : la touche est rejouée après le mot corrigé
+    pub enter: bool,
 }
 
 /// Une touche tapée pendant une correction, rejouée juste après.
@@ -110,7 +112,8 @@ const WRITING_APPS: &[&str] = &[
     "winword.exe", "notepad.exe", "wordpad.exe", "msedge.exe", "chrome.exe", "brave.exe", "firefox.exe",
     "opera.exe", "powerpnt.exe", "excel.exe", "onenote.exe", "outlook.exe", "olk.exe", "soffice.bin",
     "swriter.exe", "soffice.exe", "teams.exe", "ms-teams.exe", "discord.exe", "whatsapp.exe", "telegram.exe",
-    "slack.exe", "thunderbird.exe",
+    "slack.exe", "thunderbird.exe", "claude.exe", "obsidian.exe", "notion.exe", "signal.exe", "zoom.exe",
+    "vivaldi.exe", "chatgpt.exe", "joplin.exe", "typora.exe",
 ];
 
 /// Là où on ne corrige jamais seul : terminaux et éditeurs de code (une commande ou un programme n.est pas du français).
@@ -160,7 +163,9 @@ fn looks_like_game(hwnd: HWND) -> bool {
         }
         let m = mi.rcMonitor;
         let fullscreen = r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom;
-        fullscreen && !WRITING_APPS.contains(&exe_name(hwnd).as_str())
+        // une fenêtre normale agrandie (avec sa barre de titre) n'est pas un jeu, même sur un écran sans barre des tâches
+        let captioned = (GetWindowLongW(hwnd, GWL_STYLE) as u32) & 0x00C0_0000 == 0x00C0_0000;
+        fullscreen && !captioned && !WRITING_APPS.contains(&exe_name(hwnd).as_str())
     }
 }
 static TX: OnceLock<Sender<Msg>> = OnceLock::new();
@@ -184,7 +189,7 @@ fn now_ms() -> u64 {
 }
 
 fn is_terminator(c: char) -> bool {
-    matches!(c, ' ' | '\u{a0}' | ',' | '.' | ';' | ':' | '!' | '?' | ')' | '»')
+    matches!(c, ' ' | '\u{a0}' | ',' | '.' | ';' | ':' | '!' | '?' | ')' | ']' | '»' | '"' | '”' | '…')
 }
 
 /// Champ de mot de passe classique (les navigateurs ne se laissent pas interroger : on s'appuie
@@ -229,8 +234,12 @@ fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
         pos = c.end;
     }
     text.extend(&sentence[pos..]);
-    text.push(term);
+    let enter = matches!(term, '\r' | '\n');
+    if !enter {
+        text.push(term);
+    }
     Some(AutoFix {
+        enter,
         erase: sentence.len() - start,
         text,
         undo: sentence[start..].iter().collect(),
@@ -602,8 +611,16 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         }
     }
     if let Some(c) = ch {
-        if is_terminator(c) && st.corrects && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
+        // Entrée termine aussi le mot (on valide un message sans avoir tapé d'espace) ; la touche est rejouée
+        // juste après la correction, sauf si c'est déjà elle que l'on rejoue
+        let enter = matches!(c, '\r' | '\n') && vk == VK_RETURN && k.dwExtraInfo != REPLAY;
+        if (is_terminator(c) || enter) && st.corrects && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
             if let Some(fix) = auto_candidate(&st, fg, c) {
+                if fix.enter {
+                    let mut q = QUEUE.lock().unwrap();
+                    q.push(Ev { vk: k.vkCode as u16, flags: k.flags, up: false });
+                    q.push(Ev { vk: k.vkCode as u16, flags: k.flags, up: true });
+                }
                 begin_hold();
                 send(Msg::Auto(fix));
                 return true; // l'espace (ou la ponctuation) est retapée avec le mot corrigé

@@ -3,7 +3,7 @@
 //! Règles volontairement simples et expliquées comme en classe de 4e.
 
 use crate::custom;
-use crate::lexicon::{fold, pronoun, Entry, Form, Hint, Lexicon, FP, FS, IND, IMPF, MP, MS, PLUR, PRE, SING};
+use crate::lexicon::{fold, pronoun, Entry, Form, Hint, Lexicon, FP, FS, IND, IMPF, MP, MS, PAR, PAS, PLUR, PRE, SING};
 
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -159,7 +159,18 @@ pub fn tokenize(lex: &Lexicon, chars: &[char]) -> Vec<Token> {
 
 /// Sujet « groupe du nom » en début de proposition : « Les chats | dorment », « Le petit chien | aboie ».
 fn noun_subject(lex: &Lexicon, toks: &[Token], i: usize) -> Option<(u8, usize)> {
-    noun_group(lex, toks, i).map(|(p, k, _)| (p, k))
+    if let Some((p, k, _)) = noun_group(lex, toks, i) {
+        return Some((p, k));
+    }
+    // « les professeurs nous | ont » : on saute les petits pronoms entre le groupe et le verbe
+    let mut j = i;
+    while j > 0 && toks[j - 1].clause == toks[i].clause && CLITICS.contains(&toks[j - 1].lower.as_str()) {
+        j -= 1;
+    }
+    if j == i {
+        return None;
+    }
+    noun_group(lex, toks, j).map(|(p, k, _)| (p, k))
 }
 
 /// Les genres possibles d'un mot (MS|MP pour le masculin, FS|FP pour le féminin).
@@ -229,6 +240,7 @@ fn subject_gn(lex: &Lexicon, toks: &[Token], j: usize) -> Option<(u8, String)> {
             "elle" => FS,
             "elles" => FP,
             "ils" => MP,
+            "il" => MS,
             "nous" => PLUR,
             _ => return None,
         };
@@ -358,6 +370,7 @@ pub fn hint(lex: &Lexicon, toks: &[Token], i: usize) -> Hint {
         person: pronoun.or(group).map(|(p, _)| p),
         pronoun: pronoun.is_some(),
         participle: aux_before(lex, toks, i).is_some(),
+        etre: aux_before(lex, toks, i).is_some_and(|(a, _)| a == "être"),
         infinitive: wants_infinitive(lex, toks, i).is_some(),
         number: det_number(toks, i, lex).map(|(n, _)| n),
         to: toks
@@ -502,17 +515,24 @@ fn missing_apostrophe(lex: &Lexicon, word: &str) -> Option<String> {
     if !rest.starts_with(['a', 'e', 'é', 'è', 'ê', 'i', 'o', 'u', 'h', 'y', 'â', 'î', 'ô', 'û']) {
         return None;
     }
-    let found = if let Some(e) = lex.lookup(&rest) {
-        // « jai », « lami » : le reste doit être un vrai mot (pas un simple morceau)
-        if rest.chars().count() < 2 { return None; }
+    let found = if let Some(e) = lex.lookup(&rest).filter(|e| e.weight() >= 4.0 && rest.chars().count() >= 2) {
+        // « jai », « lami » : le reste doit être un vrai mot courant (pas un simple morceau : « tois » n'est pas « t'ois »)
         e.word.clone()
-    } else if rest.chars().count() >= 4 {
-        lex.confident(&rest, &Hint::default())?
+    } else if lex.confident(word, &Hint::default()).is_some() {
+        // le mot entier se corrige plus simplement (« depis » : depuis, pas « d'épis »)
+        return None;
+    } else if !lex.same_letters(&rest).is_empty() {
+        // « lecole » : le reste n'a que ses accents à rétablir
+        lex.restore_accents(&rest, &Hint::default()).filter(|(_, sure)| *sure)?.0
+    } else if rest.chars().count() >= 7 {
+        // « dorthograph » : un long mot mal écrit, qui se prononce comme le mot trouvé
+        lex.confident(&rest, &Hint::default()).filter(|w| same_sound(&rest, w))?
     } else {
         return None;
     };
     // « j' », « m' », « t' », « s' », « n' », « c' » : seulement devant un verbe ou un pronom ; « l' », « d' » : partout
     if matches!(first, 'j' | 'm' | 't' | 's' | 'n' | 'c')
+        && !matches!(found.as_str(), "en" | "y")
         && !lex.lookup(&found).is_some_and(|e| !e.verbs.is_empty() || e.top_tag() == "PRO")
     {
         return None;
@@ -946,7 +966,20 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 fix(best.clone(), format!("Attention aux accents : « {best} »."), "orthographe", sure);
             } else if let Some(fixed) = missing_apostrophe(lex, lower) {
                 fix(fixed.clone(), format!("Il manque une apostrophe : « {fixed} »."), "orthographe", true);
-            } else if let Some(sure) = lex.confident(lower, &h).filter(|w| !common_noun(w)) {
+            } else if let Some(word) = liaison(lex, prev, lower).and_then(|w| {
+                // « les zami », « un nami » : le son de liaison écrit en trop devant un vrai mot
+                lex.lookup(w).map(|e| {
+                    let plural = h.number.is_some_and(|n| n & SING == 0) && e.gn & PLUR == 0;
+                    if plural { plural_of(lex, &e.word).unwrap_or_else(|| e.word.clone()) } else { e.word.clone() }
+                })
+            }) {
+                fix(
+                    word.clone(),
+                    format!("On entend la liaison, mais on ne l'écrit pas : « {} {word} ».", prev.unwrap_or("")),
+                    "orthographe",
+                    true,
+                );
+            } else if let Some(sure) = lex.confident(lower, &h).filter(|w| !common_noun(w)).filter(|w| !capital || lower.chars().count() >= 7 || same_sound(lower, w)) {
                 // en tête de proposition, un nom commun remplacerait peut-être un prénom : on attend le mot
                 // suivant pour le corriger tout seul (« mezon de campagne » oui, « paul a faim » non)
                 // (seulement s'ils se prononcent pareil : « bonojur » est une faute de frappe, pas un prénom)
@@ -959,7 +992,15 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 // un prénom : rien à proposer
             } else if let Some(words) = split_words(lex, lower).filter(|_| !capital) {
                 fix(words.clone(), format!("Il manque une espace : « {words} »."), "orthographe", true);
-            } else if let Some(sure) = liaison(lex, prev, lower).and_then(|w| lex.confident(w, &h)) {
+            } else if let Some(sure) = liaison(lex, prev, lower).and_then(|w| {
+                lex.lookup(w)
+                    .map(|e| {
+                        // « les zami » : le pluriel que demande « les »
+                        let plural = h.number.is_some_and(|n| n & SING == 0) && e.gn & PLUR == 0;
+                        if plural { plural_of(lex, &e.word).unwrap_or_else(|| e.word.clone()) } else { e.word.clone() }
+                    })
+                    .or_else(|| lex.confident(w, &h))
+            }) {
                 fix(
                     sure.clone(),
                     format!("On entend la liaison, mais on ne l'écrit pas : « {} {sure} ».", prev.unwrap_or("")),
@@ -1074,6 +1115,7 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             "on" if matches!(prev, Some("ils" | "elles"))
                 || (noun_subj.is_some_and(|(p, _)| p == 6)
                     && (next_is_participle
+                        || next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_infinitive() && n.lemma().is_some_and(|l| lex.lemma_name(l).ends_with("er")))
                         || next.is_some_and(|n| {
                             matches!(n.lower.as_str(), "faim" | "soif" | "peur" | "froid" | "chaud" | "raison" | "tort" | "besoin" | "envie" | "mal")
                         }))) =>
@@ -1098,8 +1140,30 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 fix("son".into(), "Devant un nom, c'est « son » (on peut dire « mon ») : son manteau.".into(), "homophone", true);
                 continue;
             }
-            "ce" if matches!(prev, Some("il" | "elle" | "on" | "ils" | "elles")) => {
+            // « mon chien et mon chat ce battent » : devant un verbe (autre qu'être, avoir…), c'est « se »
+            "ce" if (matches!(prev, Some("il" | "elle" | "on" | "ils" | "elles"))
+                || next_entry.is_some_and(|n| {
+                    matches!(n.top_tag(), "VER") && n.is_finite() && !n.is_participle()
+                        && lemma_is(lex, n, &["être", "avoir", "pouvoir", "devoir", "falloir", "faire", "paraître", "sembler", "rester"]).is_none()
+                        && !n.has_tag("NOM") && !n.has_tag("ADJ")
+                }) && next.is_some_and(|n| !matches!(n.lower.as_str(), "qui" | "que" | "qu'" | "dont"))) =>
+            {
                 fix("se".into(), "Devant un verbe, on écrit « se » (se laver, se dire).".into(), "homophone", true);
+                continue;
+            }
+            // « tout les jours » : devant un pluriel, « tous »
+            "tout" if next.is_some_and(|n| matches!(n.lower.as_str(), "les" | "mes" | "tes" | "ses" | "ces" | "nos" | "vos" | "leurs")) => {
+                fix("tous".into(), "Devant un pluriel : « tous » (tous les jours).".into(), "accord", true);
+                continue;
+            }
+            // « la voiture de mon père et en panne » : « et » devant un complément, sans verbe dans la phrase
+            "et" if next.is_some_and(|n| matches!(n.lower.as_str(), "en" | "dans" | "sur" | "chez" | "très" | "pas"))
+                && !clause_has_verb(lex, toks, i)
+                && clause_start(toks, i) == 0
+                && i >= 2
+                && next_word_entry.is_some_and(|n| n.top_tag() != "VER") =>
+            {
+                fix("est".into(), "On peut dire « était » : c'est le verbe être, « est ».".into(), "homophone", true);
                 continue;
             }
             "c'" if matches!(prev, Some("il" | "elle" | "on")) => {
@@ -1166,8 +1230,16 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 continue;
             }
             "ma" | "ta" | "la"
-                if next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_participle())
-                    && matches!(prev, Some("il" | "elle" | "on" | "qui")) =>
+                if (next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_participle())
+                    || next_word_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_participle() && !n.is_finite())
+                    || next_entry.is_some_and(|n| {
+                        n.top_tag() == "VER" && n.is_infinitive() && n.lemma().is_some_and(|l| lex.lemma_name(l).ends_with("er"))
+                    }))
+                    && (matches!(prev, Some("il" | "elle" | "on" | "qui"))
+                        || subj.is_some_and(|(p, _)| p == 3)
+                        || noun_subj.is_some_and(|(p, _)| p == 3))
+                    // « elle la fait » : « la » est un pronom, « fait » un verbe (« ma » ne peut pas être un pronom)
+                    && (lower != "la" || next_entry.is_none_or(|n| !n.is_finite())) =>
             {
                 let (target, who) = match lower {
                     "ma" => ("m'a", "me"),
@@ -1218,9 +1290,20 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         if verb_first && lemma.ends_with("er") && !e.is_participle() {
             if let Some((aux, j)) = aux_before(lex, toks, i) {
                 let subject = subject_before(toks, j).map(|(_, k)| toks[k].lower.as_str()).unwrap_or("");
-                if let Some(p) = participle(lex, lemma, aux, subject) {
+                if let Some(p) = participle(lex, lemma, aux, subject).filter(|p| e.is_infinitive() || same_sound(lower, p) || fold(p) == fold(lower)) {
                     let tip = if aux == "avoir" { " Astuce : remplace par « vendu »." } else { "" };
                     fix(p.clone(), format!("Après « {aux} », on met le participe passé : « {p} ».{tip}"), "verbe", true);
+                    continue;
+                }
+            }
+        }
+
+        // 3 bis. après avoir ou être, une forme conjuguée qui se prononce comme le participe : « il a finit » -> fini
+        if verb_first && e.is_finite() && !e.is_participle() && !lemma.ends_with("er") && !lemma.is_empty() {
+            if let (Some((_, _)), Some(l)) = (aux_before(lex, toks, i), e.lemma()) {
+                let pp = lex.conj(l, Form { mode: PAR, tense: PAS, person: 0 });
+                if let Some(p) = pp.filter(|p| *p != lower && same_sound(lower, p)) {
+                    fix(p.to_string(), format!("Après « avoir » ou « être », on met le participe passé : « {p} »."), "verbe", true);
                     continue;
                 }
             }
@@ -1370,7 +1453,16 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 let pending = reflexive && next.is_none() && !matches!(after, Some('.' | '!' | '?' | ',' | ';' | ':'));
                 if let Some((need, who)) = subject_gn(lex, toks, j).filter(|_| !(reflexive && det_after)) {
                     if e.gn & need == 0 {
-                        if let Some(f) = agree(lex, lower, need) {
+                        // « sont partie » avec un sujet masculin : on revient d'abord au masculin singulier (parti), puis au pluriel
+                        let masc = || masculine_participle(lex, lower);
+                        let agreed = if need == MS {
+                            masc()
+                        } else {
+                            agree(lex, lower, need).or_else(|| {
+                                masc().and_then(|m| if need & (FS | FP) == 0 { agree(lex, &m, need) } else { None })
+                            })
+                        };
+                        if let Some(f) = agreed {
                             fix(f.clone(), format!("Avec « {who} » et le verbe être, on accorde au {} : « {f} ».", gn_name(need)), "accord", !pending);
                             continue;
                         }
@@ -1473,7 +1565,11 @@ fn agree(lex: &Lexicon, w: &str, need: u8) -> Option<String> {
 const LOOK_BACK: usize = 60;
 
 fn glued(sentence: &[char], start: usize) -> bool {
-    start > 0 && !matches!(sentence[start - 1], ' ' | '\u{a0}' | '(' | '«' | '"' | '\'' | '’' | '-')
+    start > 0
+        && !matches!(
+            sentence[start - 1],
+            ' ' | '\u{a0}' | '(' | '[' | '«' | '"' | '“' | '”' | '\'' | '’' | '‘' | '-' | '—' | '–' | '…' | '\n'
+        )
 }
 
 /// Les corrections à appliquer toutes seules quand un mot se termine (juste avant `term`) :
