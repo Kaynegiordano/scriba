@@ -393,6 +393,9 @@ pub fn hint(lex: &Lexicon, toks: &[Token], i: usize) -> Hint {
         to: toks
             .get(i + 1)
             .is_some_and(|n| n.sent == toks[i].sent && matches!(n.lower.as_str(), "à" | "a" | "au" | "aux" | "en" | "chez" | "dans")),
+        // le mot d'avant, pour le modèle de contexte (le mot d'après n'est connu qu'une fois tapé : voir `check`)
+        prev: if i > 0 && toks[i - 1].clause == toks[i].clause { lex.ngrams().id(&toks[i - 1].lower) } else { Some(0) },
+        next: None,
     }
 }
 
@@ -954,9 +957,17 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         let first_of_sentence = i == 0 || toks[i - 1].sent != t.sent;
         // ce qui suit le mot : « il est la. » (fin de proposition) ou « la-bas »
         let after = chars.get(t.end).copied();
+        // modèle de contexte : le mot d'avant (début de proposition = 0) et celui d'après s'il est terminé
+        let ctx_prev = if i > 0 && toks[i - 1].clause == t.clause { lex.ngrams().id(&toks[i - 1].lower) } else { Some(0) };
+        let ctx_next = next.filter(|n| n.clause == t.clause && done(n)).and_then(|n| lex.ngrams().id(&n.lower));
         let mut fix = |replacement: String, reason: String, kind: &'static str, auto: bool| {
             let replacement = match_case(&t.text, &replacement);
             if custom::ignored(&t.text, &replacement) || replacement == t.text {
+                return;
+            }
+            // un vrai mot qui va très bien avec ses voisins, remplacé par un mot qui va mal avec eux : on n'y touche pas
+            let single = !replacement.contains([' ', '\'']);
+            if single && lex.ngrams().keeps(ctx_prev, &t.lower, &replacement.to_lowercase(), ctx_next) {
                 return;
             }
             out.push(Correction { start: t.start, end: t.end, original: t.text.clone(), replacement, reason, kind, auto });
@@ -971,7 +982,9 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             if capital && !first_of_sentence {
                 continue; // nom propre
             }
-            let h = hint(lex, toks, i);
+            let mut h = hint(lex, toks, i);
+            // le mot d'après, s'il est terminé, départage aussi les candidats (« je suis contant de te voir »)
+            h.next = next.filter(|n| done(n)).and_then(|n| lex.ngrams().id(&n.lower));
             // « Paul a faim », « paul mange » : un mot inconnu en tête de proposition, sans déterminant et
             // suivi d'un verbe conjugué, est un prénom ; on ne le remplace pas par un nom commun (« pôle »)
             let name_like = clause_start(toks, i) == i

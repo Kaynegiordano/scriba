@@ -170,6 +170,124 @@ pub struct Hint {
     pub etre: bool,
     /// le mot suivant est « à », « au », « en », « chez »… (« je vais à la plage »)
     pub to: bool,
+    /// le mot d'avant (numéro dans le modèle de contexte ; `Some(0)` = début de proposition)
+    pub prev: Option<u32>,
+    /// le mot d'après, quand il est déjà tapé
+    pub next: Option<u32>,
+}
+
+/// Modèle « mots qui vont ensemble » : combien de fois chaque mot en suit un autre dans des phrases
+/// françaises courantes (Tatoeba, voir tools/build-bigrams.mjs).
+#[derive(Default)]
+pub struct Ngrams {
+    ids: HashMap<String, u32>,
+    count: Vec<u32>,
+    next: Vec<Box<[(u32, u32)]>>,
+    total: f32,
+}
+
+/// Réglages du contexte : (poids, plafond, plancher) de ln(P(mot | voisin) / P(mot)).
+/// La correction reste prudente ; la barre de prédiction suit le contexte de plus près.
+const CORRECT: (f32, f32, f32) = (1.0, 2.5, 1.0);
+const PREDICT: (f32, f32, f32) = (2.0, 3.0, 3.0);
+/// Lissage : un mot d'avant vu peu souvent dit peu de choses
+const SMOOTH: f32 = 50.0;
+
+/// (modifiables par SCRIBA_CTX / SCRIBA_PRED="poids,plafond,plancher" dans les tests)
+fn ctx_params(predict: bool) -> (f32, f32, f32) {
+    #[cfg(test)]
+    {
+        if let Ok(v) = std::env::var(if predict { "SCRIBA_PRED" } else { "SCRIBA_CTX" }) {
+            let p: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+            if p.len() == 3 {
+                return (p[0], p[1], p[2]);
+            }
+        }
+    }
+    if predict { PREDICT } else { CORRECT }
+}
+
+/// Garde-fou des règles : écart de contexte, accord minimal du mot tapé avec ses voisins, et à quel point
+/// la correction doit être improbable quand seul le mot d'avant est connu
+/// (modifiables par SCRIBA_VETO="écart,minimum,jamais" dans les tests).
+fn veto_params() -> (f32, f32, f32) {
+    const DEFAULT: (f32, f32, f32) = (3.0, 0.0, 4.5);
+    #[cfg(test)]
+    {
+        if let Ok(v) = std::env::var("SCRIBA_VETO") {
+            let p: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+            if p.len() == 3 {
+                return (p[0], p[1], p[2]);
+            }
+        }
+    }
+    DEFAULT
+}
+
+impl Ngrams {
+    pub fn load(data: &str) -> Self {
+        let mut m = Ngrams::default();
+        for (i, line) in data.lines().enumerate() {
+            let mut f = line.split('\t');
+            let (Some(w), Some(c)) = (f.next(), f.next()) else { continue };
+            m.ids.insert(w.to_string(), i as u32);
+            let c: u32 = c.parse().unwrap_or(0);
+            m.count.push(c);
+            m.total += c as f32;
+            let next: Vec<(u32, u32)> = f
+                .next()
+                .unwrap_or("")
+                .split(' ')
+                .filter_map(|p| p.split_once(':'))
+                .filter_map(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))
+                .collect();
+            m.next.push(next.into_boxed_slice());
+        }
+        m
+    }
+
+    /// Numéro d'un mot (« sœur » est écrit « soeur » dans le modèle).
+    pub fn id(&self, word: &str) -> Option<u32> {
+        let w = word.to_lowercase();
+        let w = if w.contains(['œ', 'æ']) { w.replace('œ', "oe").replace('æ', "ae") } else { w };
+        self.ids.get(&w).copied()
+    }
+
+    fn pair(&self, a: u32, b: u32) -> u32 {
+        let v = &self.next[a as usize];
+        v.binary_search_by_key(&b, |p| p.0).map(|k| v[k].1).unwrap_or(0)
+    }
+
+    /// Avec ces voisins, le mot juste `typed` va bien mieux que la correction `fix` : on ne le touche pas
+    /// (« je lui ai dit », pas « je luis » ; « mon fils est », pas « mon fil »).
+    pub fn keeps(&self, prev: Option<u32>, typed: &str, fix: &str, next: Option<u32>) -> bool {
+        let (Some(a), b) = (self.id(typed), self.id(fix)) else { return false };
+        if self.count.is_empty() || prev.is_none() {
+            return false;
+        }
+        let score = |w: Option<u32>| {
+            prev.map_or(0.0, |p| self.raw(p, w)) + match (w, next) {
+                (Some(w), Some(n)) => self.raw(w, Some(n)),
+                _ => 0.0,
+            }
+        };
+        let (sa, sb) = (score(Some(a)), score(b));
+        let (gap, min, never) = veto_params();
+        // le mot d'avant seul ne voit pas un sujet plus loin (« le chat et le chien joue. ») : il faut alors
+        // que la correction ne se rencontre presque jamais après lui (« je luis »)
+        sa >= min && sa - sb >= gap && (next.is_some() || sb <= -never)
+    }
+
+    /// À quel point `b` suit volontiers `a` : ln(P(b | a) / P(b)), lissé ; 0 = sans avis.
+    /// Un mot absent du modèle (`b` = None) est traité comme un mot jamais vu.
+    fn raw(&self, a: u32, b: Option<u32>) -> f32 {
+        let na = self.count[a as usize] as f32;
+        let (nab, pb) = match b {
+            Some(b) => (self.pair(a, b) as f32, (self.count[b as usize] as f32).max(0.5) / self.total),
+            None => (0.0, 0.5 / self.total),
+        };
+        ((nab + SMOOTH * pb) / (na + SMOOTH) / pb).ln()
+    }
 }
 
 pub struct Lexicon {
@@ -178,6 +296,9 @@ pub struct Lexicon {
     by_phon: Vec<(String, u32)>,
     lemmas: Vec<String>,
     conj: HashMap<(u32, Form), u32>,
+    ngrams: Ngrams,
+    /// numéro de chaque mot du dictionnaire dans le modèle de contexte
+    ctx_ids: Vec<Option<u32>>,
 }
 
 pub fn fold(s: &str) -> String {
@@ -490,7 +611,36 @@ impl Lexicon {
             by_ortho.sort_unstable();
         }
         by_phon.sort_unstable();
-        Lexicon { entries, by_ortho, by_phon, lemmas, conj }
+        Lexicon { entries, by_ortho, by_phon, lemmas, conj, ngrams: Ngrams::default(), ctx_ids: Vec::new() }
+    }
+
+    /// Ajoute le modèle de contexte (bigrams.tsv).
+    pub fn with_ngrams(mut self, data: &str) -> Self {
+        self.ngrams = Ngrams::load(data);
+        self.ctx_ids = self.entries.iter().map(|e| self.ngrams.id(&e.word)).collect();
+        self
+    }
+
+    pub fn ngrams(&self) -> &Ngrams {
+        &self.ngrams
+    }
+
+    /// Ce que le mot d'avant et le mot d'après disent du candidat `e` (positif : ils vont bien ensemble).
+    /// (`predict` : pour la barre de propositions, qui suit le contexte de plus près)
+    fn context(&self, idx: u32, hint: &Hint, predict: bool) -> f32 {
+        if self.ngrams.count.is_empty() || (hint.prev.is_none() && hint.next.is_none()) {
+            return 0.0;
+        }
+        let (weight, cap, floor) = ctx_params(predict);
+        let id = self.ctx_ids.get(idx as usize).copied().flatten();
+        let mut s = 0.0;
+        if let Some(p) = hint.prev {
+            s += self.ngrams.raw(p, id).clamp(-floor, cap);
+        }
+        if let (Some(n), Some(c)) = (hint.next, id) {
+            s += self.ngrams.raw(c, Some(n)).clamp(-floor, cap);
+        }
+        weight * s
     }
 
     /// Les `n` mots les plus fréquents (lettres seulement, 4 lettres ou plus) : pour les bancs d'essai.
@@ -728,7 +878,7 @@ impl Lexicon {
                         || typo_cost(fold(&e.word).as_bytes(), folded.as_bytes()).is_some_and(|c| c <= 0.6);
                     // à son poids près, le mot le plus proche de ce qui a été tapé (« meileur » : meilleur)
                     let near = 0.7 * edit_distance(fold(&e.word).as_bytes(), folded.as_bytes()) as f32;
-                    let s = e.weight + Self::adjust(e, hint) - near - if noun_after_subject { 2.5 } else { 0.0 }
+                    let s = e.weight + Self::adjust(e, hint) + self.context(*idx, hint, false) - near - if noun_after_subject { 2.5 } else { 0.0 }
                         + if exact { 2.0 } else { 0.0 }
                         + if silent_end(&fold(&e.word), &folded) { 2.0 } else { 0.0 };
                     let s = s - if !typed.chars().any(|c| c != fold(&c.to_string()).chars().next().unwrap_or(c)) && fold(&e.word) != e.word.to_lowercase() { 1.0 } else { 0.0 };
@@ -750,7 +900,7 @@ impl Lexicon {
                     let e = &self.entries[*idx as usize];
                     // consonne dédoublée qui se prononce pareil (« pome » / pomme) : aussi sûr qu'un mot de même son
                     let same = cost <= 0.6 && exact.iter().any(|p| key(p) == key(&e.pron));
-                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - cost + if same { 2.0 } else { 0.0 });
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint) + self.context(*idx, hint, false) - cost + if same { 2.0 } else { 0.0 });
                     typo.insert(*idx, cost);
                 }
             }
@@ -911,7 +1061,7 @@ impl Lexicon {
         // 4. la grammaire de la phrase départage
         let mut ranked: Vec<(u32, f32)> = score
             .into_iter()
-            .map(|(i, s)| (i, s + Self::adjust(&self.entries[i as usize], hint)))
+            .map(|(i, s)| (i, s + Self::adjust(&self.entries[i as usize], hint) + self.context(i, hint, true)))
             .collect();
         ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         let _ = max;
@@ -942,7 +1092,10 @@ pub mod tests {
 
     pub fn lex() -> &'static Lexicon {
         static L: OnceLock<Lexicon> = OnceLock::new();
-        L.get_or_init(|| Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt")))
+        L.get_or_init(|| {
+            Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt"))
+                .with_ngrams(include_str!("../data/bigrams.tsv"))
+        })
     }
 
     fn words(t: &str) -> Vec<String> {

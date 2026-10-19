@@ -1,14 +1,15 @@
 {
   "name": "scriba",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "tauri": "tauri",
     "index": "node tools/build-index.mjs data/raw/lexique/Lexique383.tsv src-tauri/data/lexique.tsv",
-    "conj": "node tools/build-conj.mjs data/raw/verbiste/verbiste-0.1.49/data src-tauri/data/conj.tsv"
+    "conj": "node tools/build-conj.mjs data/raw/verbiste/verbiste-0.1.49/data src-tauri/data/conj.tsv",
+    "bigrams": "node tools/build-bigrams.mjs data/raw/tatoeba/fra_sentences.tsv src-tauri/data/lexique.tsv src-tauri/data/bigrams.tsv src-tauri/data/phrases-test.txt"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

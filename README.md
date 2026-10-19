@@ -25,6 +25,7 @@ Scriba cherche lui-même les nouvelles versions 30 secondes après le démarrage
 npm install
 npm run index      # dictionnaire (Lexique 3.83) -> src-tauri/data/lexique.tsv
 npm run conj       # modèles de conjugaison (Verbiste) -> src-tauri/data/conj.tsv
+npm run bigrams    # mots qui vont ensemble (Tatoeba) -> src-tauri/data/bigrams.tsv, phrases-test.txt
 npx tauri build --no-bundle    # -> src-tauri/target/release/scriba.exe
 cd src-tauri && cargo test --release    # moteur, banc d'essai de phrases
 ```
@@ -35,4 +36,4 @@ Pour publier : monter la version dans `package.json`, `src-tauri/Cargo.toml` et 
 
 ## Licences et crédits
 
-Voir [CREDITS.md](CREDITS.md) : Lexique 3.83 (CC BY-SA 4.0), Verbiste (GPL), pictogrammes ARASAAC (CC BY-NC-SA, usage non commercial), OpenDyslexic (OFL). Scriba est un outil à usage privé et non commercial.
+Voir [CREDITS.md](CREDITS.md) : Lexique 3.83 (CC BY-SA 4.0), Verbiste (GPL), phrases Tatoeba (CC BY 2.0 FR), pictogrammes ARASAAC (CC BY-NC-SA, usage non commercial), OpenDyslexic (OFL). Scriba est un outil à usage privé et non commercial.

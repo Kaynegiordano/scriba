@@ -372,18 +372,7 @@ fn corpus() {
         ((seed >> 33) as usize) % n.max(1)
     };
     let strip = |w: &str| crate::lexicon::fold(w);
-    type Tr = (&'static str, fn(&str, usize) -> Option<String>);
-    let transforms: Vec<Tr> = vec![
-        ("sans accent", |w, _| { let f = crate::lexicon::fold(w); (f != w).then_some(f) }),
-        ("lettre oubliée", |w, r| { let c: Vec<char> = w.chars().collect(); let i = 1 + r % (c.len() - 1); let mut o = c.clone(); o.remove(i); Some(o.into_iter().collect()) }),
-        ("lettre en trop", |w, r| { let c: Vec<char> = w.chars().collect(); let i = r % c.len(); let mut o = c.clone(); o.insert(i, c[i]); Some(o.into_iter().collect()) }),
-        ("lettres inversées", |w, r| { let c: Vec<char> = w.chars().collect(); if c.len() < 4 { return None; } let i = 1 + r % (c.len() - 2); let mut o = c.clone(); o.swap(i, i + 1); Some(o.into_iter().collect()) }),
-        ("double consonne simplifiée", |w, _| { let c: Vec<char> = w.chars().collect(); let i = (1..c.len()).find(|&i| c[i] == c[i - 1] && !"aeiouy".contains(c[i]))?; let mut o = c.clone(); o.remove(i); Some(o.into_iter().collect()) }),
-        ("consonne doublée à tort", |w, _| { let c: Vec<char> = w.chars().collect(); let i = (1..c.len() - 1).find(|&i| !"aeiouyàâéèêîôûh".contains(c[i]) && c[i] != c[i - 1] && c[i] != c[i + 1])?; let mut o = c.clone(); o.insert(i, c[i]); Some(o.into_iter().collect()) }),
-        ("lettre voisine (clavier)", |w, r| { let c: Vec<char> = w.chars().collect(); let i = 1 + r % (c.len() - 1); let near = match c[i] { 'a' => 'z', 'z' => 'e', 'e' => 'r', 'r' => 't', 't' => 'y', 'i' => 'o', 'o' => 'p', 'q' => 's', 's' => 'd', 'd' => 'f', 'n' => 'b', 'm' => 'l', 'u' => 'i', 'l' => 'k', 'c' => 'v', _ => return None }; let mut o = c.clone(); o[i] = near; Some(o.into_iter().collect()) }),
-        ("phonétique", |w, _| { let f = crate::lexicon::fold(w); let r = f.replace("ph", "f").replace("qu", "k").replace("ch", "sh").replace("ain", "in").replace("eau", "o").replace("ou", "u").replace("tion", "sion").replace("ç", "s").replace("gu", "g").replace("oi", "oa"); (r != f).then_some(r) }),
-        ("fin muette oubliée", |w, _| { let c: Vec<char> = w.chars().collect(); (c.len() >= 5 && matches!(c[c.len() - 1], 's' | 't' | 'e' | 'x' | 'd')).then(|| c[..c.len() - 1].iter().collect()) }),
-    ];
+    let transforms = transforms();
     let mut total_fixed = 0;
     let mut total_wrong = 0;
     let mut total = 0;
@@ -397,6 +386,7 @@ fn corpus() {
             n += 1;
             let got = tape(&format!("voici {m} "));
             let got = got.trim_end().strip_prefix("voici ").unwrap_or("?");
+            if std::env::var("SCRIBA_DUMP").is_ok() { println!("DUMP {m} {w} {got}"); }
             if got == w.as_str() { good += 1; }
             else if got == m { miss += 1; if misses.len() < 30 { misses.push(format!("{m}→{w}")); } }
             else { wrong += 1; if wrongs.len() < 40 { wrongs.push(format!("{m}→{got} (voulu {w})")); } }
@@ -408,6 +398,88 @@ fn corpus() {
         total_fixed += good; total_wrong += wrong; total += n;
     }
     println!("\nTOTAL corrigés {total_fixed}/{total} ({:.0} %), mal corrigés {total_wrong} ({:.1} %)", 100.0 * total_fixed as f64 / total as f64, 100.0 * total_wrong as f64 / total as f64);
+}
+
+/// Les mêmes fautes fabriquées, mais dans de vraies phrases (Tatoeba, phrases que le modèle de contexte
+/// n'a pas apprises) : le mot d'avant et le mot d'après comptent.
+/// `cargo test --release corpus -- --nocapture` (SCRIBA_PHRASES=n pour n'en prendre que n)
+#[test]
+fn corpus_phrases() {
+    let max: usize = std::env::var("SCRIBA_PHRASES").ok().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
+    let mut seed: u64 = 777;
+    let mut rnd = |n: usize| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((seed >> 33) as usize) % n.max(1)
+    };
+    let transforms = transforms();
+    let (mut good, mut wrong, mut miss, mut n, mut broken, mut seen) = (0, 0, 0, 0, 0, 0);
+    let mut by: Vec<(usize, usize, usize)> = vec![(0, 0, 0); transforms.len()];
+    let mut wrongs: Vec<String> = Vec::new();
+    let mut misses: Vec<String> = Vec::new();
+    for line in include_str!("../data/phrases-test.txt").lines().take(max) {
+        let s: String = {
+            let mut c = line.chars();
+            c.next().map(|f| f.to_lowercase().chain(c).collect::<String>()).unwrap_or_default()
+        };
+        seen += 1;
+        // une phrase juste que Scriba abîme : comptée à part ; pour la faute, on compare à ce que donne la phrase juste
+        let clean = tape(&s);
+        if clean != s {
+            if std::env::var("SCRIBA_DUMP").is_ok() { println!("ABÎMÉE {s} -> {clean}"); }
+            broken += 1;
+        }
+        // un mot de quatre lettres ou plus, choisi au hasard, reçoit une faute
+        let chars: Vec<char> = s.chars().collect();
+        let mut spans: Vec<(usize, usize)> = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i].is_alphabetic() {
+                let st = i;
+                while i < chars.len() && chars[i].is_alphabetic() { i += 1; }
+                let apos = chars.get(i) == Some(&'\'') || chars.get(i) == Some(&'-') || (st > 0 && matches!(chars[st - 1], '\'' | '-'));
+                if i - st >= 4 && !apos { spans.push((st, i)); }
+            } else { i += 1; }
+        }
+        if spans.is_empty() { continue; }
+        let (st, en) = spans[rnd(spans.len())];
+        let w: String = chars[st..en].iter().collect();
+        let k = rnd(transforms.len());
+        let Some(m) = (transforms[k].1)(&w, rnd(1000)) else { continue };
+        if m == w || lex().lookup(&m).is_some() || m.chars().count() < 3 { continue; }
+        let typed: String = chars[..st].iter().collect::<String>() + &m + &chars[en..].iter().collect::<String>();
+        n += 1;
+        let got = tape(&typed);
+        if got == clean { good += 1; by[k].0 += 1; }
+        else if got == typed { miss += 1; by[k].1 += 1; misses.push(format!("{m}→{w}")); }
+        else {
+            wrong += 1; by[k].2 += 1;
+            if wrongs.len() < 60 { wrongs.push(format!("{typed} -> {got}")); }
+        }
+    }
+    for (k, (name, _)) in transforms.iter().enumerate() {
+        println!("{name:<28} bien={:<5} ratés={:<5} mauvais={}", by[k].0, by[k].1, by[k].2);
+    }
+    println!("\n   ratés   : {}", misses.iter().take(80).cloned().collect::<Vec<_>>().join(" · "));
+    println!("\n   mauvais :\n      {}", wrongs.join("\n      "));
+    println!("\nPHRASES justes abîmées {broken}/{seen}");
+    println!("PHRASES corrigées {good}/{n} ({:.1} %), ratées {miss}, mal corrigées {wrong} ({:.1} %)", 100.0 * good as f64 / n as f64, 100.0 * wrong as f64 / n as f64);
+}
+
+type Tr = (&'static str, fn(&str, usize) -> Option<String>);
+
+fn transforms() -> Vec<Tr> {
+    let v: Vec<Tr> = vec![
+        ("sans accent", |w, _| { let f = crate::lexicon::fold(w); (f != w).then_some(f) }),
+        ("lettre oubliée", |w, r| { let c: Vec<char> = w.chars().collect(); let i = 1 + r % (c.len() - 1); let mut o = c.clone(); o.remove(i); Some(o.into_iter().collect()) }),
+        ("lettre en trop", |w, r| { let c: Vec<char> = w.chars().collect(); let i = r % c.len(); let mut o = c.clone(); o.insert(i, c[i]); Some(o.into_iter().collect()) }),
+        ("lettres inversées", |w, r| { let c: Vec<char> = w.chars().collect(); if c.len() < 4 { return None; } let i = 1 + r % (c.len() - 2); let mut o = c.clone(); o.swap(i, i + 1); Some(o.into_iter().collect()) }),
+        ("double consonne simplifiée", |w, _| { let c: Vec<char> = w.chars().collect(); let i = (1..c.len()).find(|&i| c[i] == c[i - 1] && !"aeiouy".contains(c[i]))?; let mut o = c.clone(); o.remove(i); Some(o.into_iter().collect()) }),
+        ("consonne doublée à tort", |w, _| { let c: Vec<char> = w.chars().collect(); let i = (1..c.len() - 1).find(|&i| !"aeiouyàâéèêîôûh".contains(c[i]) && c[i] != c[i - 1] && c[i] != c[i + 1])?; let mut o = c.clone(); o.insert(i, c[i]); Some(o.into_iter().collect()) }),
+        ("lettre voisine (clavier)", |w, r| { let c: Vec<char> = w.chars().collect(); let i = 1 + r % (c.len() - 1); let near = match c[i] { 'a' => 'z', 'z' => 'e', 'e' => 'r', 'r' => 't', 't' => 'y', 'i' => 'o', 'o' => 'p', 'q' => 's', 's' => 'd', 'd' => 'f', 'n' => 'b', 'm' => 'l', 'u' => 'i', 'l' => 'k', 'c' => 'v', _ => return None }; let mut o = c.clone(); o[i] = near; Some(o.into_iter().collect()) }),
+        ("phonétique", |w, _| { let f = crate::lexicon::fold(w); let r = f.replace("ph", "f").replace("qu", "k").replace("ch", "sh").replace("ain", "in").replace("eau", "o").replace("ou", "u").replace("tion", "sion").replace("ç", "s").replace("gu", "g").replace("oi", "oa"); (r != f).then_some(r) }),
+        ("fin muette oubliée", |w, _| { let c: Vec<char> = w.chars().collect(); (c.len() >= 5 && matches!(c[c.len() - 1], 's' | 't' | 'e' | 'x' | 'd')).then(|| c[..c.len() - 1].iter().collect()) }),
+    ];
+    v
 }
 
 #[test]
@@ -423,9 +495,15 @@ fn debug_words() {
 fn timing() {
     let worst = "xqzt blorf wesh kiffer gamer tiktok fortnite roblox minecraft zorbax plouf mdr ptdr gnagna frzzt blabla yolo ouaip nikel ";
     let chars: Vec<char> = worst.chars().collect();
+    // chargement du dictionnaire (fait une fois au démarrage de l'application) : mesuré à part
     let t = std::time::Instant::now();
+    let _ = lex();
+    println!("chargement : {:?}", t.elapsed());
+    let t = std::time::Instant::now();
+    // (sans l'espace finale : le dernier mot est celui qui se termine)
+    let open: Vec<char> = worst.trim_end().chars().collect();
     for _ in 0..20 {
-        let _ = auto_fixes(lex(), &chars, ' ', custom::FULL);
+        let _ = auto_fixes(lex(), &open, ' ', custom::FULL);
     }
     println!("pire phrase : {:?} par mot terminé", t.elapsed() / 20);
     let t = std::time::Instant::now();
@@ -511,4 +589,32 @@ fn debug_sent() {
         }
         println!("    tape: {:?}", tape(&format!("{s} ")));
     }
+}
+
+/// Barre de prédiction : dans les phrases de test, après les deux premières lettres d'un mot,
+/// le mot voulu est-il proposé (premier, ou parmi les cinq) ? `cargo test --release prediction -- --nocapture`
+#[test]
+fn prediction() {
+    let (mut first, mut top, mut n) = (0, 0, 0);
+    for line in include_str!("../data/phrases-test.txt").lines().take(1000) {
+        let s = line.to_lowercase();
+        let chars: Vec<char> = s.chars().collect();
+        let toks = crate::grammar::tokenize(lex(), &chars);
+        for (i, t) in toks.iter().enumerate() {
+            if t.lower.chars().count() < 4 || !t.lower.chars().all(|c| c.is_alphabetic()) {
+                continue;
+            }
+            let start = t.start;
+            let partial: Vec<char> = chars[..start + 2].to_vec();
+            let ptoks = crate::grammar::tokenize(lex(), &partial);
+            let h = crate::grammar::hint(lex(), &ptoks, ptoks.len() - 1);
+            let typed: String = chars[start..start + 2].iter().collect();
+            let got = lex().suggest(&typed, &h, 5);
+            n += 1;
+            if got.first().is_some_and(|g| g.word == t.lower) { first += 1; }
+            if got.iter().any(|g| g.word == t.lower) { top += 1; }
+            let _ = i;
+        }
+    }
+    println!("PRÉDICTION après 2 lettres : premier {first}/{n} ({:.1} %), parmi 5 {top}/{n} ({:.1} %)", 100.0 * first as f64 / n as f64, 100.0 * top as f64 / n as f64);
 }

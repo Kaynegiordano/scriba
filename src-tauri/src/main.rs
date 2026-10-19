@@ -44,7 +44,10 @@ pub fn try_lex() -> Option<&'static Lexicon> {
 }
 
 fn lex() -> &'static Lexicon {
-    LEX.get_or_init(|| Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt")))
+    LEX.get_or_init(|| {
+        Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt"))
+            .with_ngrams(include_str!("../data/bigrams.tsv"))
+    })
 }
 
 fn conjugator() -> &'static Conjugator {
