@@ -78,6 +78,8 @@ fn starts_with_vowel(w: &str) -> bool {
 }
 
 /// Premier mot de la proposition qui contient `i` (après « et », « quand », « parce que »…).
+const DETERMINERS: &[&str] = &["les", "des", "ces", "ses", "mes", "tes", "nos", "vos", "leurs", "cet", "cette"];
+
 fn clause_start(toks: &[Token], i: usize) -> usize {
     let mut s = i;
     while s > 0 && toks[s - 1].clause == toks[i].clause && !CLAUSE_WORDS.contains(&toks[s - 1].lower.as_str()) {
@@ -264,6 +266,10 @@ fn subject_before(toks: &[Token], i: usize) -> Option<(u8, usize)> {
             break;
         }
         if let Some(p) = subject_of(&t.lower) {
+            // « ça » au milieu de la proposition (« ils ont fait ça ces mecs ») est un complément, pas un sujet
+            if t.lower == "ça" && clause_start(toks, j) != j {
+                return found;
+            }
             found = Some((p, j));
             if t.lower != "nous" && t.lower != "vous" {
                 return found;
@@ -366,6 +372,17 @@ pub fn hint(lex: &Lexicon, toks: &[Token], i: usize) -> Hint {
     let pronoun = subject_before(toks, i);
     // « les enfants mang… » -> mangent ; « les enfants qui jou… » -> jouent
     let group = if pronoun.is_none() { noun_subject(lex, toks, i).or_else(|| qui_subject(lex, toks, i)) } else { None };
+    // « Paul corrgie le texte », « Scriba corrgie » : un prénom (inconnu, majuscule, en tête de proposition) juste avant
+    let name = (pronoun.is_none() && group.is_none() && i > 0)
+        .then(|| i - 1)
+        .filter(|&k| {
+            toks[k].sent == toks[i].sent
+                && clause_start(toks, k) == k
+                && toks[k].text.chars().next().is_some_and(|c| c.is_uppercase())
+                && lex.lookup(&toks[k].lower).is_none()
+        })
+        .map(|k| (3u8, k));
+    let group = group.or(name);
     Hint {
         person: pronoun.or(group).map(|(p, _)| p),
         pronoun: pronoun.is_some(),
@@ -1392,9 +1409,19 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             }
         }
 
+        // 5 ter. « ça ces bien », « ça ses nul » : c'est « ça c'est … » (« ça » sujet, en tête de proposition)
+        if let Some((_, k)) = subj {
+            if k + 1 == i && toks[k].lower == "ça" && matches!(lower, "ces" | "ses" | "sé" | "cé") {
+                fix("c'est".into(), "« ça c'est … » : c'est = cela est.".into(), "homophone", true);
+                continue;
+            }
+        }
+
         // 5 bis. juste après un sujet, un mot qui n'est pas un verbe : son homophone verbe
         if let Some((p, k)) = subj {
-            if e.verbs.is_empty() && lower.chars().count() > 2 && matches!(e.top_tag(), "NOM" | "ADJ") {
+            let det_before_noun = DETERMINERS.contains(&lower)
+                && next.and_then(|n| lex.lookup(&n.lower)).is_some_and(|n| n.has_tag("NOM") || n.has_tag("ADJ"));
+            if e.verbs.is_empty() && lower.chars().count() > 2 && matches!(e.top_tag(), "NOM" | "ADJ") && !det_before_noun {
                 let verb = lex
                     .homophones(e)
                     .into_iter()
@@ -1410,6 +1437,16 @@ pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                     );
                     continue;
                 }
+            }
+        }
+
+        // 5 quater. après un déterminant, un verbe qui n'est jamais nom ni adjectif : un nom mal tapé (« un chient » -> chien)
+        if prev.is_some_and(|p| matches!(p, "un" | "une" | "du" | "au" | "mon" | "ma" | "ton" | "ta" | "son" | "sa" | "cet" | "cette" | "notre" | "votre"))
+            && !e.has_tag("NOM") && !e.has_tag("ADJ") && !e.has_tag("ADV") && !e.verbs.is_empty() && e.is_finite()
+        {
+            if let Some((noun, cost)) = lex.noun_typo(lower) {
+                fix(noun.clone(), format!("Après « {} », il faut un nom : « {noun} » ?", prev.unwrap_or("")), "orthographe", cost <= 0.9);
+                continue;
             }
         }
 

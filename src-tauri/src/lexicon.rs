@@ -307,6 +307,59 @@ fn one_typo(a: &[u8], b: &[u8]) -> bool {
     }
 }
 
+/// Deux touches voisines sur un clavier AZERTY (même rangée, ou rangée du dessous / dessus en diagonale).
+fn azerty_near(a: u8, b: u8) -> bool {
+    const ROWS: [&[u8]; 3] = [b"azertyuiop", b"qsdfghjklm", b"wxcvbn"];
+    let pos = |c: u8| ROWS.iter().enumerate().find_map(|(r, row)| row.iter().position(|&x| x == c).map(|j| (r as i32, j as i32)));
+    match (pos(a), pos(b)) {
+        (Some((ra, ja)), Some((rb, jb))) => {
+            (ra == rb && (ja - jb).abs() == 1) || ((ra - rb).abs() == 1 && { let (top, bot) = if ra < rb { (ja, jb) } else { (jb, ja) }; bot == top || bot == top - 1 || (bot == top + 1 && ra.min(rb) == 1) })
+        }
+        _ => false,
+    }
+}
+
+/// Coût d'une seule faute de frappe entre le mot `a` et ce qui a été tapé `b` (formes sans accents), ou None.
+/// Les fautes les plus probables coûtent moins : lettres inversées, lettre doublée ou dédoublée, touche voisine.
+/// La première lettre ne change que pour une touche voisine ou une inversion (« olein » -> plein, « ttop » -> trop).
+fn typo_cost(a: &[u8], b: &[u8]) -> Option<f32> {
+    let (la, lb) = (a.len(), b.len());
+    if a == b || la.abs_diff(lb) > 1 {
+        return None;
+    }
+    let mut i = 0;
+    while i < la.min(lb) && a[i] == b[i] {
+        i += 1;
+    }
+    if la == lb {
+        if a[i + 1..] == b[i + 1..] {
+            // une lettre remplacée
+            return if azerty_near(a[i], b[i]) { Some(0.9) } else if i == 0 { None } else { Some(1.5) };
+        }
+        if i + 1 < la && a[i] == b[i + 1] && a[i + 1] == b[i] && a[i + 2..] == b[i + 2..] {
+            return Some(0.8); // deux lettres inversées
+        }
+        return None;
+    }
+    // une lettre en trop (lb > la) ou oubliée (lb < la)
+    let (long, short) = if lb > la { (b, a) } else { (a, b) };
+    if long[i + 1..] != short[i..] {
+        return None;
+    }
+    let c = long[i];
+    let doubled = (i > 0 && long[i - 1] == c) || long.get(i + 1) == Some(&c);
+    if doubled {
+        // consonne doublée oubliée (« pome », « ele ») : la faute la plus courante à l'école
+        return Some(if lb < la && !b"aeiouy".contains(&c) { 0.6 } else { 0.8 });
+    }
+    if i == 0 {
+        return None;
+    }
+    // lettre en trop tapée sur une touche voisine de sa voisine (« plein » -> « pleiin », « mzaison »)
+    let near = lb > la && ((i > 0 && azerty_near(long[i - 1], c)) || long.get(i + 1).is_some_and(|&n| azerty_near(n, c)));
+    Some(if near { 1.1 } else { 1.5 })
+}
+
 fn edit_distance(a: &[u8], b: &[u8]) -> usize {
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.iter().enumerate() {
@@ -619,6 +672,29 @@ impl Lexicon {
     /// Le mot que l'élève voulait écrire, quand on peut en être presque certain :
     /// un seul candidat, ou un candidat bien plus courant que les autres.
     /// Candidats : mêmes sons (mezon), ou une seule faute de lettre (bonojur).
+    /// Après un déterminant, un mot qui n'est qu'un verbe (« un chient ») est sans doute un nom mal tapé :
+    /// le nom courant à une seule faute de frappe (chien), avec son coût.
+    pub fn noun_typo(&self, typed: &str) -> Option<(String, f32)> {
+        let folded = fold(typed);
+        if folded.chars().count() < 4 {
+            return None;
+        }
+        let q = folded.as_bytes();
+        let mut best: Option<(u32, f32, f32)> = None;
+        for (k, idx) in &self.by_ortho {
+            let Some(cost) = typo_cost(k.as_bytes(), q) else { continue };
+            let e = &self.entries[*idx as usize];
+            if cost > 1.5 || e.weight < 2.0 || !e.has_tag("NOM") {
+                continue;
+            }
+            let s = e.weight - cost;
+            if best.is_none_or(|(_, b, _)| s > b) {
+                best = Some((*idx, s, cost));
+            }
+        }
+        best.map(|(i, _, c)| (self.entries[i as usize].word.clone(), c))
+    }
+
     pub fn confident(&self, typed: &str, hint: &Hint) -> Option<String> {
         let folded = fold(typed);
         let letters = folded.chars().count();
@@ -628,6 +704,7 @@ impl Lexicon {
         // sauf si la phrase attend un verbe (« je fé »)
         // (un accent tapé montre que l'élève vise un vrai mot : « idé » -> idée)
         let accented = typed.chars().any(|c| fold(&c.to_string()) != c.to_string());
+        // (essayé : corriger aussi les mots de trois lettres coûte plus de fausses corrections qu'il n'en rattrape)
         if letters < 2 || (letters <= 3 && !expects_verb && !accented) {
             return None;
         }
@@ -646,7 +723,9 @@ impl Lexicon {
                     // après « je », « il »… : un verbe est attendu, pas un nom
                     let noun_after_subject = Self::verb_expected(hint) && e.verbs.is_empty();
                     // même prononciation exacte (« pleu » : pleut, pas plaît)
-                    let exact = exact.iter().any(|p| **p == *e.pron);
+                    // (« pome » se prononce comme pomme : la consonne dédoublée compte comme le même son)
+                    let exact = exact.iter().any(|p| **p == *e.pron)
+                        || typo_cost(fold(&e.word).as_bytes(), folded.as_bytes()).is_some_and(|c| c <= 0.6);
                     // à son poids près, le mot le plus proche de ce qui a été tapé (« meileur » : meilleur)
                     let near = 0.7 * edit_distance(fold(&e.word).as_bytes(), folded.as_bytes()) as f32;
                     let s = e.weight + Self::adjust(e, hint) - near - if noun_after_subject { 2.5 } else { 0.0 }
@@ -659,13 +738,20 @@ impl Lexicon {
             }
         }
         let phonetic: Vec<u32> = cands.keys().copied().collect();
+        let mut typo: HashMap<u32, f32> = HashMap::new();
         if letters >= 4 {
             let q = folded.as_bytes();
             for (k, idx) in &self.by_ortho {
                 // une faute de lettre compte moins qu'un mot qui se prononce pareil
-                if k.as_bytes().first() == q.first() && one_typo(k.as_bytes(), q) && !cands.contains_key(idx) {
+                if cands.contains_key(idx) {
+                    continue;
+                }
+                if let Some(cost) = typo_cost(k.as_bytes(), q) {
                     let e = &self.entries[*idx as usize];
-                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - 1.5);
+                    // consonne dédoublée qui se prononce pareil (« pome » / pomme) : aussi sûr qu'un mot de même son
+                    let same = cost <= 0.6 && exact.iter().any(|p| key(p) == key(&e.pron));
+                    cands.insert(*idx, e.weight + Self::adjust(e, hint) - cost + if same { 2.0 } else { 0.0 });
+                    typo.insert(*idx, cost);
                 }
             }
         }
@@ -676,7 +762,15 @@ impl Lexicon {
         let is_exact = |i: u32| exact.iter().any(|p| **p == *self.entries[i as usize].pron);
         if let (Some(top), Some(ex)) = (ranked.first().copied(), ranked.iter().find(|(i, _)| is_exact(*i)).copied()) {
             if top.1 - ex.1 <= 3.0 && self.entries[ex.0 as usize].weight >= 2.0 {
-                ranked.retain(|(i, _)| is_exact(*i));
+                // sauf une faute de frappe très probable vers un mot bien plus courant (« pome » : pomme, pas paume)
+                let ex_w = self.entries[ex.0 as usize].weight;
+                ranked.retain(|(i, _)| {
+                    is_exact(*i)
+                        || typo.get(i).copied().or_else(|| typo_cost(fold(&self.entries[*i as usize].word).as_bytes(), folded.as_bytes())).is_some_and(|c| {
+                            let w = self.entries[*i as usize].weight;
+                            (c <= 0.9 && w >= ex_w + 2.0) || (c <= 0.6 && w >= ex_w)
+                        })
+                });
             }
         }
         let best = ranked.first()?;
@@ -690,7 +784,15 @@ impl Lexicon {
             .iter()
             .skip(1)
             .find(|(i, _)| !one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()));
-        if rival.is_some_and(|r| best.1 - r.1 < if letters <= 4 { 3.0 } else { 2.0 }) {
+        // (une faute de frappe très probable vers un mot au moins dix fois plus courant l'emporte : « bein » -> bien)
+        let best_cost = typo.get(&best.0).copied().or_else(|| typo_cost(best_folded.as_bytes(), folded.as_bytes()));
+        let typo_wins = |r: &(u32, f32)| {
+            let gap = self.entries[best.0 as usize].weight - self.entries[r.0 as usize].weight;
+            best_cost.is_some_and(|c| c <= 0.9) && gap >= 2.5
+                // consonne dédoublée qui se prononce pareil (« pome » : pomme plutôt que paume), mot au moins aussi courant
+                || best_cost.is_some_and(|c| c <= 0.6) && gap >= 0.0 && exact.iter().any(|p| key(p) == key(&self.entries[best.0 as usize].pron))
+        };
+        if rival.is_some_and(|r| best.1 - r.1 < if letters <= 4 { 3.0 } else { 2.0 } && !typo_wins(r)) {
             return None;
         }
         // dans la même famille (enfant / enfants), le plus proche de ce qui a été tapé

@@ -23,6 +23,12 @@ pub fn tape(phrase: &str) -> String {
 
 /// (tapé, attendu)
 const FAUTES: &[(&str, &str)] = &[
+    ("il y en a olein d'autres ", "il y en a plein d'autres "),
+    ("il y en a plien ", "il y en a plein "),
+    ("il mange une pome ", "il mange une pomme "),
+    ("elle est come ça ", "elle est comme ça "),
+    ("ça ces trop bien", "ça c'est trop bien"),
+    ("Paul corrgie le texte", "Paul corrige le texte"),
     // accords dans le groupe du nom
     ("une grand maison ", "une grande maison "),
     ("la petit fille ", "la petite fille "),
@@ -131,6 +137,8 @@ const FAUTES: &[(&str, &str)] = &[
 
 /// Phrases justes : rien ne doit bouger.
 const JUSTES: &[&str] = &[
+    "ils ont fait ça ces mecs",
+    "donne-moi ça ces jouets sont à moi",
     "Le chat de ma grand-mère a la patte cassée. ",
     "Paul a faim, il mange une pomme. ",
     "Ma mère et mon père sont partis au travail. ",
