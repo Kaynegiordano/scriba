@@ -902,7 +902,98 @@ fn masculine_participle(lex: &Lexicon, w: &str) -> Option<String> {
 }
 
 /// Vérifie les mots terminés de la phrase (pas le mot en cours de frappe).
+/// Toutes les corrections de la phrase : celles des mots (règles de Scriba), puis la grammaire de Grammalecte
+/// quand il est disponible (accords, conjugaisons, confusions), qui remplace les règles de grammaire de Scriba
+/// là où les deux se prononcent.
 pub fn check(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
+    let mut out = check_rules(lex, chars);
+    let text: String = chars.iter().collect();
+    let Some(errs) = crate::grammalecte::errors(&text) else { return out };
+    let done = |end: usize| end < chars.len() && !chars[end].is_alphabetic();
+    // après ce mot, rien que des déterminants et adjectifs : le nom n'est pas encore tapé (« une grand| »)
+    let noun_not_typed = |end: usize| {
+        let rest: String = chars[end..].iter().collect();
+        rest.split(|c: char| !c.is_alphabetic() && c != '\'').filter(|w| !w.is_empty()).all(|w| {
+            let w = w.to_lowercase();
+            DETS.contains(&w.as_str()) || lex.lookup(&w).is_some_and(|x| x.top_tag() == "ADJ")
+        })
+    };
+    let waits_for_noun = |w: &str| DETS.contains(&w) || lex.lookup(w).is_some_and(|x| x.top_tag() == "ADJ");
+    const DETS: &[&str] = &["le", "la", "les", "l'", "un", "une", "des", "du", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "ce", "cet", "cette", "ces", "notre", "votre", "nos", "vos", "leur", "leurs"];
+    let mut found: Vec<Correction> = Vec::new();
+    for e in errs {
+        // les types qui relèvent de la grammaire ; la typographie et le style ne sont pas pour un élève
+        let auto_kind = matches!(e.kind.as_str(), "gn" | "conj" | "ppas" | "infi" | "conf");
+        if !auto_kind && !matches!(e.kind.as_str(), "loc" | "imp" | "inte" | "vmode" | "eleu") {
+            continue;
+        }
+        if e.end > chars.len() || e.start >= e.end || e.sugg.is_empty() {
+            continue;
+        }
+        let original: String = chars[e.start..e.end].iter().collect();
+        let lower = original.to_lowercase();
+        // « ils mange » : Grammalecte propose aussi « il mange » ; on corrige le verbe, jamais le sujet
+        if matches!(lower.as_str(), "je" | "tu" | "il" | "elle" | "on" | "nous" | "vous" | "ils" | "elles") {
+            continue;
+        }
+        // les règles de Scriba, réglées sur des fautes d'élèves, passent d'abord ; Grammalecte complète.
+        // Un mot voisin d'une correction de Scriba est le même désaccord vu de l'autre côté (« une chien » : Scriba
+        // met « un », Grammalecte voudrait « chienne ») : on n'y touche pas non plus.
+        if out.iter().any(|c| c.start <= e.end + 1 && e.start <= c.end + 1) {
+            continue;
+        }
+        let sugg = e.sugg[0].replace('’', "'");
+        // un accord change la fin du mot, jamais le mot lui-même (« le maison » : pas « méson »)
+        if e.kind == "gn" && !DETS.contains(&lower.as_str()) {
+            let stem = |w: &str| crate::lexicon::fold(w).chars().take(3).collect::<String>();
+            if stem(&lower) != stem(&sugg) {
+                continue;
+            }
+        }
+        let replacement = match_case(&original, &sugg);
+        if replacement == original || custom::ignored(&original, &replacement) {
+            continue;
+        }
+        let kind = if matches!(e.kind.as_str(), "conf" | "loc") { "homophone" } else { "accord" };
+        found.push(Correction {
+            start: e.start,
+            end: e.end,
+            original,
+            replacement,
+            reason: e.msg.replace('“', "« ").replace('”', " »").trim().to_string(),
+            kind,
+            // une seule proposition, et le mot est terminé : assez sûr pour être appliqué tout seul.
+            // Un déterminant ou un adjectif en fin de phrase attend son nom (« une grand… » -> « une grande maison »).
+            auto: auto_kind && e.sugg.len() == 1 && done(e.end) && !(waits_for_noun(&lower) && noun_not_typed(e.end))
+                // une confusion (a / à, et / est) se tranche avec le mot suivant : on l'attend
+                && !(e.kind == "conf" && !chars[e.end..].iter().any(|c| c.is_alphabetic())),
+        });
+    }
+    // deux mots voisins signalés pour le même désaccord sont deux façons de le corriger, pas deux fautes :
+    // « le maison » -> on change le déterminant ; « a manger » -> on change le verbe, pas « a » en « à »
+    let mut drop = vec![false; found.len()];
+    for a in 0..found.len() {
+        for b in a + 1..found.len() {
+            let (x, y) = (&found[a], &found[b]);
+            if y.start.saturating_sub(x.end) > 1 || x.end > y.start {
+                continue;
+            }
+            let short = |c: &Correction| c.original.chars().count() <= 3;
+            if DETS.contains(&x.original.to_lowercase().as_str()) && x.kind == "accord" {
+                drop[b] = true;
+            } else if short(x) && !short(y) {
+                drop[a] = true;
+            } else if short(y) && !short(x) {
+                drop[b] = true;
+            }
+        }
+    }
+    out.extend(found.into_iter().zip(drop).filter(|(_, d)| !d).map(|(c, _)| c));
+    out.sort_by_key(|c| c.start);
+    out
+}
+
+fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
     let mut toks = tokenize(lex, chars);
     let mut out: Vec<Correction> = Vec::new();
     let mut pre: Vec<Correction> = Vec::new();

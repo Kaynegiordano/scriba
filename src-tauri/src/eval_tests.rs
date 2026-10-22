@@ -367,6 +367,56 @@ fn eval() {
     assert!(ko.is_empty() && abimes.is_empty(), "{} fautes ratées, {} phrases justes abîmées", ko.len(), abimes.len());
 }
 
+/// Fautes de grammaire et de conjugaison en contexte (accord loin du sujet, participes, infinitifs) :
+/// mesure ce que la phrase entière apporte. Pas d'assertion : un score à suivre.
+const GRAMMAIRE: &[(&str, &str)] = &[
+    ("les enfants de ma classe mange à la cantine ", "les enfants de ma classe mangent à la cantine "),
+    ("mes copains joue au foot ", "mes copains jouent au foot "),
+    ("les élèves qui sont sage ont un bon point ", "les élèves qui sont sages ont un bon point "),
+    ("ma grand-mère et mon grand-père habite à Lyon ", "ma grand-mère et mon grand-père habitent à Lyon "),
+    ("je les ai vu hier ", "je les ai vus hier "),
+    ("les filles sont partis tôt ", "les filles sont parties tôt "),
+    ("elle est allé à la piscine ", "elle est allée à la piscine "),
+    ("nous avons manger des frites ", "nous avons mangé des frites "),
+    ("il faut manger tes légumes ", "il faut manger tes légumes "),
+    ("ils ont finit leurs devoirs ", "ils ont fini leurs devoirs "),
+    ("tu as pris ton cartable ", "tu as pris ton cartable "),
+    ("vous avez gagnez le match ", "vous avez gagné le match "),
+    ("je veux allé au parc ", "je veux aller au parc "),
+    ("il commence à pleuvoir ", "il commence à pleuvoir "),
+    ("on a regarder un film ", "on a regardé un film "),
+    ("les chiens aboie la nuit ", "les chiens aboient la nuit "),
+    ("mes parents me dise de ranger ma chambre ", "mes parents me disent de ranger ma chambre "),
+    ("les maisons sont grande ", "les maisons sont grandes "),
+    ("des fleurs rouge ", "des fleurs rouges "),
+    ("une belle journées ", "une belle journée "),
+    ("ils sont aller à la mer ", "ils sont allés à la mer "),
+    ("elle a acheter une robe ", "elle a acheté une robe "),
+    ("je suis partie hier soir ", "je suis partie hier soir "),
+    ("tous les jours je prend le bus ", "tous les jours je prends le bus "),
+    ("tu fait quoi ce soir ", "tu fais quoi ce soir "),
+    ("il veux venir avec nous ", "il veut venir avec nous "),
+    ("nous allons au cinéma et nous mangeont du popcorn ", "nous allons au cinéma et nous mangeons du popcorn "),
+    ("les oiseaux chante le matin ", "les oiseaux chantent le matin "),
+    ("la maîtresse nous a donner des exercices ", "la maîtresse nous a donné des exercices "),
+    ("quand je serais grand je serai pompier ", "quand je serai grand je serai pompier "),
+    ("les garçons de la classe sont gentil ", "les garçons de la classe sont gentils "),
+    ("mon frère et moi sommes allé au zoo ", "mon frère et moi sommes allés au zoo "),
+    ("elles se sont amusé ", "elles se sont amusées "),
+    ("ces livres sont intéressant ", "ces livres sont intéressants "),
+    ("j'ai vu des chevals ", "j'ai vu des chevaux "),
+];
+
+#[test]
+fn grammaire() {
+    let mut ok = 0;
+    for (t, voulu) in GRAMMAIRE {
+        let got = tape(t);
+        if got == *voulu { ok += 1; } else { println!("  RATÉ  {t:<52} -> {got:<52} (voulu : {voulu})"); }
+    }
+    println!("GRAMMAIRE : {ok}/{}", GRAMMAIRE.len());
+}
+
 #[test]
 fn debug_eval() {
     // SCRIBA_DEBUG="phrase 1|phrase 2" pour examiner d'autres phrases

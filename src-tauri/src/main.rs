@@ -8,6 +8,7 @@ mod conj;
 mod custom;
 #[cfg(test)]
 mod eval_tests;
+mod grammalecte;
 mod grammar;
 mod hook;
 mod inject;
@@ -673,6 +674,7 @@ fn main() {
 
     custom::load();
     updater::cleanup();
+    grammalecte::start();   // grammaire de toute la phrase (téléchargée au premier lancement)
     let (tx, rx) = channel::<Msg>();
     let hook_tx = tx.clone();
     let tray_tx = tx.clone();

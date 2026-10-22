@@ -20,3 +20,7 @@ Scriba est un outil à usage privé. Il s'appuie sur ces ressources libres :
 
 Regénérer les données : `npm run index`, `npm run conj`, `npm run bigrams` (après `npm run index`), puis
 `node tools/build-pictos.mjs …` et `python -I tools/fetch-pictos.py …` (voir l'en-tête des scripts).
+
+## Grammalecte
+
+Correction grammaticale de toute la phrase : Grammalecte 2.3.0 (https://grammalecte.net), licence GPL 3. Il n'est pas inclus dans Scriba.exe : Scriba le télécharge au premier lancement depuis grammalecte.net (empreinte SHA-256 vérifiée) et le fait tourner avec Python.

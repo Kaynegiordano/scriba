@@ -1093,6 +1093,10 @@ pub mod tests {
     pub fn lex() -> &'static Lexicon {
         static L: OnceLock<Lexicon> = OnceLock::new();
         L.get_or_init(|| {
+            // SCRIBA_GRAMMALECTE=<dossier du paquet> : les tests passent aussi par Grammalecte
+            if std::env::var_os("SCRIBA_GRAMMALECTE").is_some_and(|v| v != "off") {
+                assert!(crate::grammalecte::wait_ready(30), "Grammalecte n'a pas démarré");
+            }
             Lexicon::load_with(include_str!("../data/lexique.tsv"), include_str!("../data/extra.txt"))
                 .with_ngrams(include_str!("../data/bigrams.tsv"))
         })
