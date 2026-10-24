@@ -332,6 +332,11 @@ fn publish(st: &State) {
     send(Msg::Text(st.sentence.iter().collect()));
 }
 
+/// La barre réapparaît : on renvoie la phrase suivie pour recalculer ses propositions.
+pub fn republish() {
+    publish(&STATE.lock().unwrap());
+}
+
 fn clear(st: &mut State) {
     st.sentence.clear();
     st.dead = None;

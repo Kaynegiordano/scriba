@@ -466,6 +466,13 @@ fn set_visible(show: bool) {
     unsafe {
         ShowWindow(own_hwnd(), if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
     }
+    if show {
+        hook::republish();
+    }
+}
+
+fn bar_visible() -> bool {
+    hook::VISIBLE.load(Ordering::Relaxed)
 }
 
 /// Clic sur la barre : rendre la main à la fenêtre où l'élève écrivait.
@@ -492,8 +499,16 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
     let mut typed = String::new();
     let mut items: Vec<Suggestion> = Vec::new();
     let mut fix: Option<Correction> = None;
+    // Barre masquée : ni suggestions, ni grammaire, ni envoi à la page à chaque frappe (la page cachée se
+    // redessinait pour rien sur la carte graphique). Tout est recalculé quand la barre réapparaît.
+    let stale = std::cell::Cell::new(false);
 
     let refresh = |sentence: &[char], typed: &mut String, items: &mut Vec<Suggestion>, fix: &mut Option<Correction>| {
+        if !bar_visible() {
+            stale.set(true);
+            return;
+        }
+        stale.set(false);
         let word_len = sentence.iter().rev().take_while(|c| c.is_alphabetic()).count();
         *typed = sentence[sentence.len() - word_len..].iter().collect();
 
@@ -545,7 +560,7 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
         match msg {
             Msg::Text(s) => {
                 let s: Vec<char> = s.chars().collect();
-                if s == sentence {
+                if s == sentence && !stale.get() {
                     continue;
                 }
                 sentence = s;
@@ -596,7 +611,9 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 sentence.truncate(keep);
                 sentence.extend(a.text.chars());
                 let (from, to) = pairs_view(&a.pairs);
-                let _ = app.emit("auto", Notice { from, to, reason: a.reason.clone(), undone: false });
+                if bar_visible() {
+                    let _ = app.emit("auto", Notice { from, to, reason: a.reason.clone(), undone: false });
+                }
                 hook::set_last_auto(Some(a));
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
                 hook::finish_hold();
@@ -618,10 +635,12 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                     }
                 }
                 let (to, from) = pairs_view(&a.pairs);
-                let _ = app.emit(
-                    "auto",
-                    Notice { from, to, reason: "D'accord, je ne le corrigerai plus.".into(), undone: true },
-                );
+                if bar_visible() {
+                    let _ = app.emit(
+                        "auto",
+                        Notice { from, to, reason: "D'accord, je ne le corrigerai plus.".into(), undone: true },
+                    );
+                }
                 refresh(&sentence, &mut typed, &mut items, &mut fix);
                 hook::finish_hold();
             }
