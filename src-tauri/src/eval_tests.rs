@@ -18,6 +18,12 @@ pub fn tape(phrase: &str) -> String {
         }
         typed.push(c);
     }
+    // Entrée valide le message : le dernier mot, qui attendait son voisin, est corrigé
+    if typed.last().is_some_and(|x| x.is_alphabetic() || *x == ' ') {
+        for f in auto_fixes(lex(), &typed, '\n', custom::FULL).into_iter().rev() {
+            typed.splice(f.start..f.end, f.replacement.chars());
+        }
+    }
     typed.into_iter().collect()
 }
 
@@ -520,7 +526,7 @@ fn corpus_phrases() {
         n += 1;
         let got = tape(&typed);
         if got == clean { good += 1; by[k].0 += 1; }
-        else if got == typed { miss += 1; by[k].1 += 1; misses.push(format!("{m}→{w}")); }
+        else if got == typed { miss += 1; by[k].1 += 1; misses.push(format!("{m}→{w}")); if std::env::var("SCRIBA_DUMP").is_ok() && crate::lexicon::fold(&w) == m { println!("RATE-ACCENT {typed}"); } }
         else {
             wrong += 1; by[k].2 += 1;
             if wrongs.len() < 60 { wrongs.push(format!("{typed} -> {got}")); }
@@ -687,4 +693,54 @@ fn prediction() {
         }
     }
     println!("PRÉDICTION après 2 lettres : premier {first}/{n} ({:.1} %), parmi 5 {top}/{n} ({:.1} %)", 100.0 * first as f64 / n as f64, 100.0 * top as f64 / n as f64);
+}
+
+/// Phrases justes, style messages (data/justes_chat.txt) : aucune correction ne doit se déclencher.
+/// `cargo test --release chat -- --nocapture` ; avec Grammalecte : SCRIBA_GRAMMALECTE=<dossier du paquet>
+#[test]
+fn chat() {
+    let mut bad: Vec<String> = Vec::new();
+    let mut n = 0;
+    for line in include_str!("../data/justes_chat.txt").lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+        let lower: String = {
+            let mut cs = line.chars();
+            cs.next().map(|c| c.to_lowercase().chain(cs).collect()).unwrap_or_default()
+        };
+        for (variant, s) in [("tel quel", line.to_string()), ("minuscule", lower), ("sans point", line.trim_end_matches(['.', '?', '!']).to_string() + " ")] {
+            n += 1;
+            let got = tape(&s);
+            if got != s {
+                let diff: Vec<String> = s
+                    .split(' ')
+                    .zip(got.split(' '))
+                    .filter(|(a, b)| a != b)
+                    .map(|(a, b)| format!("{a}→{b}"))
+                    .collect();
+                bad.push(format!("[{variant}] {s}\n        {}", diff.join(", ")));
+            }
+        }
+    }
+    println!("CHAT {} corrections sur {n} frappes", bad.len());
+    for b in &bad {
+        println!("CHAT {b}");
+    }
+}
+
+/// Ce que Grammalecte dit d'une phrase, sans le filtre de Scriba : `SCRIBA_DEBUG="phrase|phrase"`.
+#[test]
+fn debug_gc() {
+    let _ = lex();
+    let env = std::env::var("SCRIBA_DEBUG").unwrap_or_else(|_| "les enfants que j'ai vu sont partis.".into());
+    for s in env.split('|') {
+        match crate::grammalecte::errors(s) {
+            None => println!("GC {s:?} -> (Grammalecte indisponible)"),
+            Some(v) if v.is_empty() => println!("GC {s:?} -> rien"),
+            Some(v) => {
+                for e in v {
+                    let w: String = s.chars().skip(e.start).take(e.end - e.start).collect();
+                    println!("GC {s:?} -> [{}] « {w} » {:?} : {}", e.kind, e.sugg, e.msg);
+                }
+            }
+        }
+    }
 }

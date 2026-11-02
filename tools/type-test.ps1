@@ -32,7 +32,7 @@ if (-not $NoClear) {
   Start-Sleep -Milliseconds 200
 }
 
-$tokens = [regex]::Matches($Text, "\{F\d\}|\{\^\}|\{TOGGLE\}|\{CONJ\}|\{BS\}|.")
+$tokens = [regex]::Matches($Text, "\{F\d\}|\{\^\}|\{TOGGLE\}|\{CONJ\}|\{BS\}|\{ENTER\}|.")
 foreach ($t in $tokens) {
   $s = $t.Value
   if ($s -eq "{^}") {
@@ -40,6 +40,11 @@ foreach ($t in $tokens) {
     $vk = [uint16]([Kb]::VkKeyScan([char]'^') -band 0xFF)
     [Kb]::Key($vk, $false); [Kb]::Key($vk, $true)
     Start-Sleep -Milliseconds $DelayMs
+    continue
+  }
+  if ($s -eq "{ENTER}") {
+    [Kb]::Key(0x0D, $false); [Kb]::Key(0x0D, $true)
+    Start-Sleep -Milliseconds 700
     continue
   }
   if ($s -eq "{BS}") {

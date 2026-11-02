@@ -4,9 +4,13 @@ use crate::custom;
 use crate::grammar::{auto_fix, auto_fixes, check};
 use crate::lexicon::tests::lex;
 
+/// La correction du dernier mot. Un mot inconnu attend son voisin de droite avant d'être remplacé tout seul :
+/// à l'espace il reste en l'état, à la ponctuation ou à Entrée (la phrase est finie) il est corrigé.
 fn auto(s: &str, term: char, mode: u8) -> Option<(String, String)> {
     let chars: Vec<char> = s.chars().collect();
-    auto_fix(lex(), &chars, term, mode).map(|c| (c.original, c.replacement))
+    auto_fix(lex(), &chars, term, mode)
+        .or_else(|| if term == ' ' { auto_fix(lex(), &chars, '\n', mode) } else { None })
+        .map(|c| (c.original, c.replacement))
 }
 
 fn fixes(s: &str) -> Vec<(String, String)> {
@@ -120,9 +124,19 @@ fn nouvelles_regles() {
 }
 
 /// Toutes les corrections faites quand le dernier mot se termine (y compris sur les mots d'avant).
+/// Les corrections à la frappe de `term`, puis à Entrée (un mot inconnu attend son voisin ou la fin de la phrase).
 fn all(s: &str, term: char) -> Vec<(String, String)> {
     let chars: Vec<char> = s.chars().collect();
-    auto_fixes(lex(), &chars, term, custom::FULL).into_iter().map(|c| (c.original, c.replacement)).collect()
+    let mut v: Vec<(String, String)> =
+        auto_fixes(lex(), &chars, term, custom::FULL).into_iter().map(|c| (c.original, c.replacement)).collect();
+    if term == ' ' {
+        for c in auto_fixes(lex(), &chars, '\n', custom::FULL) {
+            if !v.iter().any(|(a, _)| *a == c.original) {
+                v.push((c.original, c.replacement));
+            }
+        }
+    }
+    v
 }
 
 #[test]

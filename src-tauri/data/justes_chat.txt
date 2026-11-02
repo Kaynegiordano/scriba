@@ -1,0 +1,183 @@
+# Phrases justes, dans le style des messages de tous les jours : Scriba ne doit RIEN y changer.
+# Un test (eval_tests.rs, `chat`) les tape lettre par lettre ; chaque correction est un faux positif.
+Regarde ce truc, il recule vers le mur.
+Prends la manette et appelle-moi quand tu es prêt.
+Il faut que je recule un peu pour mieux voir.
+Ça prend beaucoup de temps de télécharger tous les loras.
+Je prends le premier preset et je teste.
+Tu prends toujours le même shader ?
+Il prend son temps pour répondre.
+Elle prend le bus tous les matins.
+Le fils de mon voisin joue à Minecraft.
+Les fils sont tous emmêlés derrière le bureau.
+J'ai un fil de rallonge dans le tiroir.
+Il y a des trucs bizarres dans ce fichier.
+C'est un truc que j'ai trouvé hier.
+J'ai plein de trucs à faire aujourd'hui.
+Je vais appeler mon frère ce soir.
+On m'a appelé hier pour le travail.
+Je l'appelais souvent quand j'étais petit.
+Il faut appeler le support si ça plante encore.
+Appelle-moi quand tu arrives.
+Les apps se mettent à jour toutes seules.
+J'ai téléchargé les checkpoints et les loras.
+Le fork est plus rapide que l'original.
+On a fait un repack du jeu pour gagner de la place.
+Mon PC chauffe beaucoup quand je lance le jeu.
+Je pense que le problème vient du pilote graphique.
+Tu peux me dire où tu as trouvé ce preset ?
+Je sais pas si ça va marcher.
+Ça marche pas du tout, j'ai tout essayé.
+J'ai pas compris ce que tu voulais dire.
+Il y a un bug dans la dernière version.
+Elle regarde la vidéo depuis ce matin.
+Je regarde ça dès que j'ai fini.
+Regarde, ça recule encore !
+Tu regardes quoi comme série ?
+Ils regardent le match ensemble.
+Je veux que tu regardes ça avant de décider.
+Ne recule pas maintenant.
+Le curseur recule d'un cran à chaque fois.
+Si tu recules encore, tu vas tomber.
+Fais attention, la voiture recule.
+On va devoir tout recommencer depuis le début.
+J'ai essayé de réinstaller le logiciel, sans succès.
+Il m'a dit qu'il viendrait demain.
+Nous avons fini le projet hier soir.
+Vous pouvez venir quand vous voulez.
+Les enfants jouent dans le jardin.
+Mes parents arrivent demain matin.
+C'est la première fois que je vois ça.
+Je crois qu'il est parti sans rien dire.
+Elle est partie avant la fin du film.
+Ils sont arrivés en retard à cause du trafic.
+Les photos que j'ai prises sont floues.
+La vidéo que tu m'as envoyée est super.
+Les fichiers que j'ai supprimés étaient inutiles.
+Je me suis levé tôt ce matin.
+Elle s'est trompée de chemin.
+On s'est vus hier au parc.
+Quand j'étais petit, je jouais dehors.
+Demain, on ira au cinéma avec les copains.
+Si j'avais le temps, je ferais plus de sport.
+Il faut que tu viennes avec nous.
+Je voudrais que tu m'aides pour ce devoir.
+Bien que ce soit difficile, je vais essayer.
+C'est dommage qu'il ne puisse pas venir.
+Va voir si le serveur répond encore.
+Viens voir, j'ai trouvé quelque chose d'intéressant.
+Dis-moi ce que tu en penses.
+Peux-tu me prêter ton chargeur ?
+As-tu fini tes devoirs ?
+Où est-ce que tu as mis mes clés ?
+Pourquoi tu fais cette tête ?
+Comment ça se fait que ça plante ?
+Qu'est-ce que tu veux manger ce soir ?
+Combien de temps ça prend pour installer ça ?
+Il n'y a plus de place sur le disque.
+Je n'ai jamais vu un truc pareil.
+Elle n'a rien dit pendant toute la réunion.
+Personne ne sait comment ça fonctionne.
+J'en ai marre de ce jeu.
+On se retrouve devant la gare à huit heures.
+Je suis allé à l'école à pied.
+Nous sommes allés à la plage hier.
+Il a mangé une pomme et une banane.
+Elle a pris un café avant de partir.
+Ils ont perdu leurs clés dans le parc.
+J'ai vu un film génial hier soir.
+Tu as vu le dernier épisode ?
+On a gagné le match grâce à notre gardien.
+Les résultats sont meilleurs avec le nouveau preset.
+Cette version est beaucoup plus stable que la précédente.
+Le jeu tourne à soixante images par seconde.
+J'ai acheté une nouvelle souris gamer.
+Mon clavier fait un bruit bizarre quand j'appuie sur la barre d'espace.
+La caméra capte très bien la lumière.
+Il fait beau aujourd'hui, on devrait sortir.
+Ce matin, il pleuvait des cordes.
+J'adore ce genre de musique.
+Je trouve que ce film est un peu trop long.
+Il parle très vite, je comprends pas tout.
+Bon ok je vois ce que tu veux dire.
+Oui carrément, on fait comme ça.
+Super merci pour ton aide.
+Bref, on verra bien demain.
+Tkt c'est bon, j'ai réglé le problème.
+Ouais j'arrive dans cinq minutes.
+Tu as vu ça ?
+Il y a un souci avec le son.
+La plupart des gens pensent que c'est facile.
+Le groupe de joueurs a gagné le tournoi.
+Un tas de choses restent à faire.
+Ce sont mes amis, ils viennent dîner.
+C'est eux qui ont gagné.
+Moi, je pense que ça va aller.
+Lui et moi, on y va ensemble.
+Mes amis et moi allons au cinéma.
+J'ai un cours de maths demain matin.
+Le temps passe vite quand on s'amuse.
+Ce pays est magnifique en été.
+J'ai mangé un bon repas hier soir.
+Il a fait le mauvais choix.
+Le prix du processeur a encore baissé.
+Mon frère a un bras cassé depuis lundi.
+Les bras m'en tombent.
+Elle a mis un pas devant l'autre et elle a avancé.
+Je vais tester cette option dès ce soir.
+Tu peux essayer de redémarrer le routeur.
+Il suffit de cliquer sur le bouton en haut à droite.
+Pour installer le jeu, il faut d'abord libérer de l'espace.
+J'ai activé le mode sombre sur tous mes appareils.
+Le téléchargement s'est arrêté à quatre-vingt-dix pour cent.
+On peut régler la sensibilité de la souris dans les options.
+Mon ami m'a conseillé de changer de carte graphique.
+Le serveur est tombé en panne pendant la nuit.
+Les mises à jour arrivent toujours au mauvais moment.
+Elle a installé les nouveaux pilotes ce matin.
+Ils ont créé un site pour partager leurs trouvailles.
+Ça fait deux heures que je cherche la solution.
+Je te renvoie le lien dès que je l'ai.
+Tu dois d'abord télécharger le fichier, ensuite tu l'ouvres.
+Dès que tu as fini, envoie-moi une capture d'écran.
+J'attends encore la réponse de mon professeur.
+Notre équipe a marqué trois buts en dix minutes.
+Je ne sais pas pourquoi mais ça ne démarre plus.
+C'est vraiment pas mal comme idée.
+Le dernier chapitre est le plus intéressant.
+Cette série est bien meilleure que la première saison.
+Chaque joueur reçoit une carte au début de la partie.
+Tous les élèves ont rendu leur copie à temps.
+Toutes les fenêtres étaient ouvertes.
+Quelques amis sont venus m'aider à déménager.
+Plusieurs personnes ont déjà posé la question.
+Il reste encore beaucoup de choses à vérifier.
+Elle est vraiment très gentille avec tout le monde.
+Mes notes sont meilleures que l'année dernière.
+Ce soir, je dois finir mon exposé d'histoire.
+Je dois rendre mon devoir avant vendredi.
+Le prof nous a donné beaucoup d'exercices à faire.
+Nous devons apprendre la leçon sur les fractions.
+Les élèves de ma classe adorent les sorties scolaires.
+J'ai oublié mon cahier de textes à la maison.
+La cantine propose des pâtes avec du fromage.
+Après les cours, on va souvent au parc.
+Ma sœur joue du piano depuis cinq ans.
+Mon chat dort toute la journée sur le canapé.
+Les oiseaux chantent dès le lever du soleil.
+On a regardé un documentaire sur les volcans.
+Hier soir, j'ai eu du mal à m'endormir.
+Je me demande si c'est vraiment utile.
+Il m'a promis qu'il ne dirait rien à personne.
+Je suis sûr que tu vas réussir.
+Ça dépend de ce que tu veux faire.
+Il vaut mieux attendre la prochaine mise à jour.
+Why can't you just restart it and see if it works?
+I need a perfect preset for this game.
+This kitten is so cute, look at it.
+Just let me know when the animated version is ready.
+Can you push the fork and open a pull request?
+That was a great stream, thanks for the tips.
+Il faut juste redémarrer le serveur, need help ?
+Le restart a pris deux minutes, perfect.
+J'ai testé le fork et les loras, ça marche.

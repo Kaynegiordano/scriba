@@ -6,6 +6,7 @@ mod autostart;
 mod clipboard;
 mod conj;
 mod custom;
+mod english;
 #[cfg(test)]
 mod eval_tests;
 mod grammalecte;

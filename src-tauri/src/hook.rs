@@ -619,7 +619,13 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         // Entrée termine aussi le mot (on valide un message sans avoir tapé d'espace) ; la touche est rejouée
         // juste après la correction, sauf si c'est déjà elle que l'on rejoue
         let enter = matches!(c, '\r' | '\n') && vk == VK_RETURN && k.dwExtraInfo != REPLAY;
-        if (is_terminator(c) || enter) && st.corrects && st.sentence.last().is_some_and(|x| x.is_alphabetic()) {
+        // (Entrée après « mot␠ » compte aussi : le dernier mot attendait son voisin, qui ne viendra pas)
+        let ends_word = st.sentence.last().is_some_and(|x| x.is_alphabetic())
+            || (enter
+                && st.sentence.last() == Some(&' ')
+                && st.sentence.len() >= 2
+                && st.sentence[st.sentence.len() - 2].is_alphabetic());
+        if (is_terminator(c) || enter) && st.corrects && ends_word {
             if let Some(fix) = auto_candidate(&st, fg, c) {
                 if fix.enter {
                     let mut q = QUEUE.lock().unwrap();

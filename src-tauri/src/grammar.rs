@@ -3,7 +3,7 @@
 //! Règles volontairement simples et expliquées comme en classe de 4e.
 
 use crate::custom;
-use crate::lexicon::{fold, pronoun, Entry, Form, Hint, Lexicon, FP, FS, IND, IMPF, MP, MS, PAR, PAS, PLUR, PRE, SING};
+use crate::lexicon::{fold, pronoun, Cls, Entry, Form, Hint, Lexicon, FP, FS, IND, IMPF, MP, MS, PAR, PAS, PLUR, PRE, SING};
 
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -413,6 +413,9 @@ pub fn hint(lex: &Lexicon, toks: &[Token], i: usize) -> Hint {
         // le mot d'avant, pour le modèle de contexte (le mot d'après n'est connu qu'une fois tapé : voir `check`)
         prev: if i > 0 && toks[i - 1].clause == toks[i].clause { lex.ngrams().id(&toks[i - 1].lower) } else { Some(0) },
         next: None,
+        prev_cls: Cls::Any,
+        next_cls: Cls::Any,
+        next_vowel: false,
     }
 }
 
@@ -534,12 +537,63 @@ fn cue_choice(lex: &Lexicon, toks: &[Token], i: usize) -> Option<&'static str> {
     Some(best)
 }
 
+/// Le mot `i` est-il du anglais ? Voisin d'un mot anglais (« need perfect »), ou mot anglais seul qui n'est pas
+/// la faute d'un mot français très courant (« come » : comme ; « thanks » : pas « tanks »).
+/// Un mot qui a une version accentuée en français (« the » : thé) ne compte que s'il est voisin d'un mot anglais.
+fn is_english(lex: &Lexicon, toks: &[Token], i: usize) -> bool {
+    let lower = toks[i].lower.as_str();
+    let alien = |j: usize| {
+        toks.get(j).is_some_and(|t| t.sent == toks[i].sent && lex.lookup(&t.lower).is_none() && crate::english::is_word(&t.lower))
+    };
+    if (i > 0 && alien(i - 1)) || alien(i + 1) {
+        return true;
+    }
+    if !crate::english::is_word(lower) || lex.same_letters(lower).len() > 0 {
+        return false;
+    }
+    let h = hint(lex, toks, i);
+    // la faute d'un mot français très courant, à une lettre près : on corrige (« come » -> « comme »)
+    !lex.confident(lower, &h).is_some_and(|w| {
+        lex.lookup(&w).is_some_and(|e| e.weight() >= 5.0)
+            && crate::lexicon::edit_distance(fold(&w).as_bytes(), fold(lower).as_bytes()) <= 1
+    })
+}
+
+/// La nature d'un mot voisin (voir `Cls`) : de quoi écarter un candidat qui ne peut pas s'y trouver.
+fn classify(lex: &Lexicon, w: &str) -> Cls {
+    match w {
+        "un" | "une" | "des" | "ce" | "cet" | "cette" | "ces" | "mon" | "ma" | "mes" | "ton" | "ta" | "tes" | "son" | "sa"
+        | "ses" | "notre" | "votre" | "nos" | "vos" | "quelques" | "plusieurs" | "chaque" => Cls::Det,
+        "me" | "te" | "se" | "ne" | "y" | "en" | "m'" | "t'" | "s'" | "n'" => Cls::Clitic,
+        "de" | "d'" | "à" | "dans" | "par" | "pour" | "sur" | "sous" | "avec" | "sans" | "chez" | "vers" | "entre"
+        | "contre" | "depuis" | "pendant" | "selon" => Cls::Prep,
+        _ => match lex.lookup(w) {
+            // un nom d'abord (« classe » est aussi un verbe, mais d'abord un nom)
+            Some(e) if e.top_tag() == "NOM" && !["PRO", "PRE", "CON", "ART", "ONO"].iter().any(|t| e.has_tag(t)) => {
+                Cls::NounOnly
+            }
+            Some(e)
+                if matches!(e.top_tag(), "VER" | "AUX")
+                    && e.is_finite()
+                    && !e.is_infinitive()
+                    && !e.is_participle()
+                    && !e.has_tag("NOM")
+                    && !e.has_tag("ADJ") =>
+            {
+                Cls::Verb
+            }
+            _ => Cls::Any,
+        },
+    }
+}
+
 /// « jai » -> « j'ai », « dorthograph » -> « d'orthographe » : l'apostrophe oubliée devant une voyelle.
 fn missing_apostrophe(lex: &Lexicon, word: &str) -> Option<String> {
     // « quil » -> « qu'il », « quon » -> « qu'on »
     if let Some(rest) = word.strip_prefix("qu") {
         if starts_with_vowel(rest) && rest.chars().count() >= 2 {
-            if let Some(e) = lex.lookup(rest).filter(|e| e.weight() >= 3.0) {
+            // « quil » -> qu'il ; mais « quan » n'est pas « qu'an » : un nom ne suit jamais « qu' »
+            if let Some(e) = lex.lookup(rest).filter(|e| e.weight() >= 3.0 && !(e.has_tag("NOM") && !e.has_tag("PRO"))) {
                 return Some(format!("qu'{}", e.word));
             }
         }
@@ -554,13 +608,26 @@ fn missing_apostrophe(lex: &Lexicon, word: &str) -> Option<String> {
     }
     let found = if let Some(e) = lex.lookup(&rest).filter(|e| e.weight() >= 4.0 && rest.chars().count() >= 2) {
         // « jai », « lami » : le reste doit être un vrai mot courant (pas un simple morceau : « tois » n'est pas « t'ois »)
+        // (« das » : dans ; « d'as » n'a pas de sens : le mot entier, s'il n'est pas un petit mot, passe d'abord)
+        // (« jaime » reste « j'aime » : devant j', m', t', s', n', c', l'apostrophe est presque toujours la bonne lecture)
+        if matches!(first, 'd' | 'l')
+            && lex.confident(word, &Hint::default()).and_then(|w| lex.lookup(&w).map(|x| x.weight())).is_some_and(|w| w > e.weight() + 0.5)
+        {
+            return None;
+        }
+        // « d' » et « l' » : un nom, un adjectif ou un infinitif suit, pas un verbe conjugué (« d'as », « l'ont »)
+        if matches!(first, 'd' | 'l') && !e.verbs.is_empty() && e.is_finite() && !e.is_infinitive() && !e.is_participle() {
+            return None;
+        }
         e.word.clone()
     } else if lex.confident(word, &Hint::default()).is_some() {
         // le mot entier se corrige plus simplement (« depis » : depuis, pas « d'épis »)
         return None;
     } else if !lex.same_letters(&rest).is_empty() {
         // « lecole » : le reste n'a que ses accents à rétablir
-        lex.restore_accents(&rest, &Hint::default()).filter(|(_, sure)| *sure)?.0
+        lex.restore_accents(&rest, &Hint::default())
+            .filter(|(w, sure)| *sure && lex.lookup(w).is_some_and(|e| e.weight() >= 3.0))?
+            .0
     } else if rest.chars().count() >= 7 {
         // « dorthograph » : un long mot mal écrit, qui se prononce comme le mot trouvé
         lex.confident(&rest, &Hint::default()).filter(|w| same_sound(&rest, w))?
@@ -710,6 +777,10 @@ fn split_words(lex: &Lexicon, w: &str) -> Option<String> {
         }
         // au moins ~20 fois par million de mots : pas un mot rare qui tomberait par hasard
         let Some(e) = lex.lookup(rest).filter(|e| e.weight() >= 3.0) else { continue };
+        // « de eux » s'écrit « d'eux » : ce n'est pas une espace oubliée
+        if matches!(*head, "de" | "que" | "ce" | "se" | "me" | "te" | "ne" | "le" | "la" | "si" | "je") && starts_with_vowel(&e.word) {
+            continue;
+        }
         if found.is_some() {
             return None;
         }
@@ -1003,6 +1074,14 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
     //    soient lus avec le bon contexte (« ca peche » -> « ça pèche », donc un verbe après « ça »)
     for i in 0..toks.len() {
         let lower = toks[i].lower.clone();
+        if lex.lookup(&lower).is_none() && is_english(lex, &toks, i) {
+            continue;
+        }
+        // « the » : thé ou l'article anglais ? tant que le mot suivant n'est pas tapé, on ne tranche pas
+        let just_typed = chars.get(toks[i].end) == Some(&' ') && toks[i].end + 1 == chars.len();
+        if just_typed && lex.lookup(&lower).is_none() && crate::english::is_word(&lower) {
+            continue;
+        }
         // le sens de la phrase tranche entre « pêche », « pèche », « péché » (ou « tache » / « tâche »…)
         if let Some(word) = cue_choice(lex, &toks, i) {
             if word != lower {
@@ -1066,6 +1145,10 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         let first_of_sentence = i == 0 || toks[i - 1].sent != t.sent;
         // ce qui suit le mot : « il est la. » (fin de proposition) ou « la-bas »
         let after = chars.get(t.end).copied();
+        // le mot vient d'être terminé par une espace et rien n'est encore tapé derrière : il lui manque son voisin
+        // de droite, qui dit souvent seul quel mot est voulu (« cett montagne » : cette, pas ce). On attend ce
+        // voisin pour corriger sans demander ; une ponctuation ou Entrée, elles, finissent la phrase tout de suite.
+        let pending = after == Some(' ') && t.end + 1 == chars.len();
         // modèle de contexte : le mot d'avant (début de proposition = 0) et celui d'après s'il est terminé
         let ctx_prev = if i > 0 && toks[i - 1].clause == t.clause { lex.ngrams().id(&toks[i - 1].lower) } else { Some(0) };
         let ctx_next = next.filter(|n| n.clause == t.clause && done(n)).and_then(|n| lex.ngrams().id(&n.lower));
@@ -1087,6 +1170,10 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             if lower.ends_with('\'') || lower.chars().count() < 2 || custom::knows(lower) {
                 continue;
             }
+            // un mot anglais n'est pas une faute de français (et « the » : thé ou l'article anglais ? on attend le mot suivant)
+            if is_english(lex, toks, i) || (pending && crate::english::is_word(lower)) {
+                continue;
+            }
             let capital = t.text.chars().next().is_some_and(|c| c.is_uppercase());
             if capital && !first_of_sentence {
                 continue; // nom propre
@@ -1094,6 +1181,11 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             let mut h = hint(lex, toks, i);
             // le mot d'après, s'il est terminé, départage aussi les candidats (« je suis contant de te voir »)
             h.next = next.filter(|n| done(n)).and_then(|n| lex.ngrams().id(&n.lower));
+            // la nature des voisins écarte un candidat qui ne peut pas s'y trouver (« se montagne », « me vos livres »)
+            h.prev_cls = prev.map_or(Cls::Any, |p| classify(lex, p));
+            let done_next = next.filter(|n| done(n));
+            h.next_cls = done_next.map_or(Cls::Any, |n| classify(lex, &n.lower));
+            h.next_vowel = done_next.is_some_and(|n| starts_with_vowel(&n.lower));
             // « Paul a faim », « paul mange » : un mot inconnu en tête de proposition, sans déterminant et
             // suivi d'un verbe conjugué, est un prénom ; on ne le remplace pas par un nom commun (« pôle »)
             let name_like = clause_start(toks, i) == i
@@ -1101,7 +1193,7 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             let common_noun = |w: &str| name_like && lex.lookup(w).is_some_and(|e| e.top_tag() == "NOM");
             if let Some(words) = fused(lower) {
                 fix(words.into(), format!("Ce sont plusieurs mots : « {words} »."), "orthographe", true);
-            } else if let Some((best, sure)) = lex.restore_accents(lower, &h) {
+            } else if let Some((best, sure)) = lex.restore_accents(lower, &h).filter(|(b, sure)| *sure || lex.confident(lower, &h).is_none_or(|c| c == *b)) {
                 fix(best.clone(), format!("Attention aux accents : « {best} »."), "orthographe", sure);
             } else if let Some(fixed) = missing_apostrophe(lex, lower) {
                 fix(fixed.clone(), format!("Il manque une apostrophe : « {fixed} »."), "orthographe", true);
@@ -1126,7 +1218,7 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                     && next.is_none()
                     && lex.lookup(&sure).is_some_and(|e| e.top_tag() == "NOM")
                     && same_sound(lower, &sure);
-                fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", !wait);
+                fix(sure.clone(), format!("Mot inconnu. Tu voulais écrire « {sure} » ?"), "orthographe", !wait && !pending);
             } else if name_like {
                 // un prénom : rien à proposer
             } else if let Some(words) = split_words(lex, lower).filter(|_| !capital) {
@@ -1152,7 +1244,7 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 let sure = !capital || same_sound(lower, &s.word);
                 if s.word != lower && sure {
                     // proposition nettement devant les autres : appliquée sans demander
-                    let clear = !capital && lex.guess(lower, &h).is_some_and(|g| g == s.word);
+                    let clear = !capital && !pending && lex.guess(lower, &h).is_some_and(|g| g == s.word);
                     fix(s.word.clone(), format!("Mot inconnu. Tu voulais écrire « {} » ?", s.word), "orthographe", clear);
                 }
             }
@@ -1745,12 +1837,14 @@ pub fn auto_fixes(lex: &Lexicon, sentence: &[char], term: char, mode: u8) -> Vec
         return Vec::new();
     }
     let end = sentence.len();
-    let word_len = sentence.iter().rev().take_while(|c| c.is_alphabetic()).count();
+    // Entrée après « mot␠ » : le dernier mot attendait son voisin, qui ne viendra pas
+    let word_end = if matches!(term, '\r' | '\n') && sentence.last() == Some(&' ') { end - 1 } else { end };
+    let word_len = sentence[..word_end].iter().rev().take_while(|c| c.is_alphabetic()).count();
     if word_len == 0 || word_len > 40 {
         return Vec::new();
     }
     // le mot qui se termine est collé à autre chose (adresse, fichier, mot de passe) : on ne fait rien
-    if glued(sentence, end - word_len) {
+    if glued(sentence, word_end - word_len) {
         return Vec::new();
     }
     let mut chars = sentence.to_vec();

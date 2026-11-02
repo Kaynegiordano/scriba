@@ -153,6 +153,23 @@ pub struct Suggestion {
     pub picto: Option<u32>,
 }
 
+/// La nature d'un mot voisin, assez sûre pour écarter un candidat qui ne peut pas se trouver là.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cls {
+    #[default]
+    Any,
+    /// un, une, des, ce, mon… : un nom ou un adjectif suit
+    Det,
+    /// un nom, rien d'autre (pas un verbe, pas un adjectif)
+    NounOnly,
+    /// me, te, se, ne, y, en : un verbe suit
+    Clitic,
+    /// de, à, dans, pour…
+    Prep,
+    /// un verbe conjugué, rien d'autre (est, sont, peut…)
+    Verb,
+}
+
 /// Ce que la phrase attend au mot en cours (calculé par `grammar::hint`).
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Hint {
@@ -174,6 +191,11 @@ pub struct Hint {
     pub prev: Option<u32>,
     /// le mot d'après, quand il est déjà tapé
     pub next: Option<u32>,
+    /// la nature du mot d'avant / d'après (quand il est tapé), pour écarter ce qui ne peut pas s'y trouver
+    pub prev_cls: Cls,
+    pub next_cls: Cls,
+    /// le mot d'après commence par une voyelle : « de eux » s'écrit « d'eux »
+    pub next_vowel: bool,
 }
 
 /// Modèle « mots qui vont ensemble » : combien de fois chaque mot en suit un autre dans des phrases
@@ -481,7 +503,7 @@ fn typo_cost(a: &[u8], b: &[u8]) -> Option<f32> {
     Some(if near { 1.1 } else { 1.5 })
 }
 
-fn edit_distance(a: &[u8], b: &[u8]) -> usize {
+pub fn edit_distance(a: &[u8], b: &[u8]) -> usize {
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.iter().enumerate() {
         let mut prev = row[0];
@@ -708,11 +730,43 @@ impl Lexicon {
             && matches!(best.0.top_tag(), "NOM" | "ADJ")
             && scored.get(1).is_some_and(|next| matches!(next.0.top_tag(), "VER" | "AUX"));
         let margin = if noun_wins { 1.0 } else { 3.0 };
-        let sure = scored.get(1).is_none_or(|next| best.1 - next.1 >= margin);
+        // un mot rare (« mondée ») n'est pas choisi sans demander : on ne le fait pas à la place de l'élève
+        let sure = best.0.weight >= 1.5 && scored.get(1).is_none_or(|next| best.1 - next.1 >= margin);
         Some((best.0.word.clone(), sure))
     }
 
     /// Juste après un pronom sujet (« je », « il »…), sans auxiliaire : un verbe conjugué est attendu.
+    /// Le candidat `e` peut-il se trouver entre ces deux voisins ? (« cett montagne » : pas « se montagne »,
+    /// qu'aucun nom ne suit ; « vos livres » : pas « me vos livres » ; « de eux » : on élide.)
+    fn compatible(e: &Entry, hint: &Hint) -> bool {
+        let has = |t: &str| e.has_tag(t);
+        let w = e.word.as_str();
+        // après un, des, ce, mon… : un nom ou un adjectif, pas un verbe ni une préposition
+        if hint.prev_cls == Cls::Det && !(has("NOM") || has("ADJ") || has("ADV") || has("ONO")) {
+            return false;
+        }
+        // devant un nom : pas un simple pronom ni une conjonction (« se montagne ») ; un verbe peut
+        // précéder un nom sans déterminant (« fait attention », « a besoin »)
+        if hint.next_cls == Cls::NounOnly
+            && !(has("ART") || has("ADJ") || has("PRE") || has("ADV") || has("NOM") || has("VER") || has("AUX"))
+        {
+            return false;
+        }
+        // « ma super est » : entre un déterminant et un verbe, il faut un nom
+        if hint.prev_cls == Cls::Det && hint.next_cls == Cls::Verb && !has("NOM") {
+            return false;
+        }
+        // me, te, se… se placent devant un verbe, jamais devant un déterminant, un nom ou une préposition
+        if matches!(w, "me" | "te" | "se" | "ne" | "y" | "en") && matches!(hint.next_cls, Cls::Det | Cls::NounOnly | Cls::Prep) {
+            return false;
+        }
+        // devant une voyelle ces mots-là s'élident
+        if hint.next_vowel && matches!(w, "de" | "que" | "ce" | "se" | "me" | "te" | "ne" | "le" | "la" | "si") {
+            return false;
+        }
+        true
+    }
+
     fn verb_expected(hint: &Hint) -> bool {
         hint.person.is_some() && hint.pronoun && !hint.participle && !hint.infinitive
     }
@@ -866,6 +920,9 @@ impl Lexicon {
             for (pk, idx) in range(&self.by_phon, k) {
                 if pk == k {
                     let e = &self.entries[*idx as usize];
+                    if !Self::compatible(e, hint) {
+                        continue;
+                    }
                     // un mot de deux lettres garde sa première lettre (fé -> fais, pas ia -> ya)
                     if letters == 2 && e.word.chars().next().map(|c| fold(&c.to_string())) != folded.chars().next().map(|c| c.to_string()) {
                         continue;
@@ -898,6 +955,9 @@ impl Lexicon {
                 }
                 if let Some(cost) = typo_cost(k.as_bytes(), q) {
                     let e = &self.entries[*idx as usize];
+                    if !Self::compatible(e, hint) {
+                        continue;
+                    }
                     // consonne dédoublée qui se prononce pareil (« pome » / pomme) : aussi sûr qu'un mot de même son
                     let same = cost <= 0.6 && exact.iter().any(|p| key(p) == key(&e.pron));
                     cands.insert(*idx, e.weight + Self::adjust(e, hint) + self.context(*idx, hint, false) - cost + if same { 2.0 } else { 0.0 });
@@ -993,7 +1053,11 @@ impl Lexicon {
         let rival = ranked
             .iter()
             .skip(1)
-            .find(|(i, _)| !one_typo(fold(&self.entries[*i as usize].word).as_bytes(), best_folded.as_bytes()));
+            .find(|(i, _)| {
+                // (« corrige » / « corrigé » : même mot, seul l'accent change)
+                let w = fold(&self.entries[*i as usize].word);
+                w != best_folded && !one_typo(w.as_bytes(), best_folded.as_bytes())
+            });
         if rival.is_some_and(|r| score - r.1 < 1.5) {
             return None;
         }
