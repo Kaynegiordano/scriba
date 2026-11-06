@@ -1,0 +1,165 @@
+# Fautes typiques d'un élève de 4e : « tapé | attendu ». Une ligne dont les deux côtés sont égaux est un
+# contrôle : Scriba ne doit pas y toucher. Banc : `cargo test --release dictee -- --nocapture`.
+# --- pluriel après une quantité
+il y a plein de voiture dans la rue | il y a plein de voitures dans la rue
+j'ai trop de devoir ce soir | j'ai trop de devoirs ce soir
+elle a beaucoup d'ami au collège | elle a beaucoup d'amis au collège
+plusieurs élève sont absents | plusieurs élèves sont absents
+j'ai lu quelques livre cet été | j'ai lu quelques livres cet été
+il a beaucoup de courage | il a beaucoup de courage
+on a eu beaucoup de chance | on a eu beaucoup de chance
+il y a beaucoup de monde ici | il y a beaucoup de monde ici
+j'ai pas assez de temps | j'ai pas assez de temps
+# --- accord après être : le verbe dit le nombre
+les filles de ma classe sont gentille | les filles de ma classe sont gentilles
+mes amis sont parti en vacances | mes amis sont partis en vacances
+nous sommes rentré tard | nous sommes rentrés tard
+elles sont arrivé en retard | elles sont arrivées en retard
+ils sont très content | ils sont très contents
+les enfants du quartier sont fatigué | les enfants du quartier sont fatigués
+mes parents sont fier de moi | mes parents sont fiers de moi
+vous êtes gentil | vous êtes gentil
+ils sont médecins | ils sont médecins
+elles se sont amusé | elles se sont amusées
+ils se sont trompé de salle | ils se sont trompés de salle
+# --- un nom à la place du verbe qui se prononce pareil
+mon père travail beaucoup | mon père travaille beaucoup
+il travail le samedi | il travaille le samedi
+le prof appel les élèves | le prof appelle les élèves
+elle envoi un message | elle envoie un message
+je réveil mon frère | je réveille mon frère
+le travail est fini | le travail est fini
+# --- un verbe à la place du nom ou de l'adjectif qui se prononce pareil
+on va au restaurent | on va au restaurant
+c'est un bon conseille | c'est un bon conseil
+j'ai fait un gros travaille | j'ai fait un gros travail
+le réveille a sonné | le réveil a sonné
+mes parents sont contant | mes parents sont contents
+je le conseille à tout le monde | je le conseille à tout le monde
+# --- futur après « quand », « demain »
+quand je serais grand je serai pompier | quand je serai grand je serai pompier
+demain je mangerais chez ma tante | demain je mangerai chez ma tante
+si j'avais le temps je mangerais plus | si j'avais le temps je mangerais plus
+je voudrais un verre d'eau | je voudrais un verre d'eau
+# --- apostrophe oubliée
+je men vais | je m'en vais
+jetais content de le voir | j'étais content de le voir
+je taime fort | je t'aime fort
+je nai pas fini | je n'ai pas fini
+lami de mon frère est là | l'ami de mon frère est là
+cest trop bien | c'est trop bien
+il ne sest rien passé | il ne s'est rien passé
+# --- accents
+on a mangé des crepes | on a mangé des crêpes
+je suis alle a la fete | je suis allé à la fête
+mon pere est tres gentil | mon père est très gentil
+c'est la premiere fois | c'est la première fois
+j'ai achete du pain | j'ai acheté du pain
+la maitresse est partie | la maîtresse est partie
+# --- on écrit comme on entend
+je pence que oui | je pense que oui
+il fait bocou de sport | il fait beaucoup de sport
+c'est vrémen bien | c'est vraiment bien
+ils ont joué au foot apré l'école | ils ont joué au foot après l'école
+il fait froi dehors | il fait froid dehors
+je veu un gâteau | je veux un gâteau
+tu peu venir demain | tu peux venir demain
+on a fini les exercise | on a fini les exercices
+il a pri son sac | il a pris son sac
+# --- homophones et conjugaison
+il a mal a la tête | il a mal à la tête
+ils on gagné le match | ils ont gagné le match
+on et partis tôt | on est partis tôt
+elle à faim | elle a faim
+il va mangé | il va manger
+ils mange à la cantine | ils mangent à la cantine
+tu chante bien | tu chantes bien
+les chiens aboie la nuit | les chiens aboient la nuit
+il faut que tu vienne | il faut que tu viennes
+# --- fautes de frappe sur les petits mots
+je viens avc toi | je viens avec toi
+il est dns la cuisine | il est dans la cuisine
+ele est partie | elle est partie
+# --- contrôles
+ces amis sont gentils | ces amis sont gentils
+il a peur du noir | il a peur du noir
+elle fait attention | elle fait attention
+nous avons besoin d'aide | nous avons besoin d'aide
+il conseille ses amis | il conseille ses amis
+# --- deuxième série (écrite après coup, pour vérifier que les règles se généralisent)
+il y a trop de voiture sur le parking | il y a trop de voitures sur le parking
+j'ai beaucoup de copain dans ma classe | j'ai beaucoup de copains dans ma classe
+elle a plein de livre chez elle | elle a plein de livres chez elle
+on a eu beaucoup de pluie cette semaine | on a eu beaucoup de pluie cette semaine
+il fait beaucoup de bruit | il fait beaucoup de bruit
+les garçons de l'équipe sont content | les garçons de l'équipe sont contents
+mes cousines sont venu hier | mes cousines sont venues hier
+nous sommes allé au cinéma | nous sommes allés au cinéma
+les élèves de la classe sont sorti | les élèves de la classe sont sortis
+ma sœur et moi sommes parti tôt | ma sœur et moi sommes partis tôt
+mon frère conseil toujours ses amis | mon frère conseille toujours ses amis
+le chien réveil toute la maison | le chien réveille toute la maison
+ma mère envoi un colis | ma mère envoie un colis
+c'est un très bon travaille | c'est un très bon travail
+j'ai entendu un appelle | j'ai entendu un appel
+quand tu seras grand tu comprendras | quand tu seras grand tu comprendras
+demain je viendrais te voir | demain je viendrai te voir
+quand je finirais mes devoirs je jouerai | quand je finirai mes devoirs je jouerai
+si je pouvais je viendrais | si je pouvais je viendrais
+jai faim | j'ai faim
+je naime pas les épinards | je n'aime pas les épinards
+il ma donné un stylo | il m'a donné un stylo
+cetait trop bien | c'était trop bien
+lécole commence à huit heures | l'école commence à huit heures
+la fenetre est ouverte | la fenêtre est ouverte
+il est tres fort | il est très fort
+on a gagne le match | on a gagné le match
+je vais a la piscine | je vais à la piscine
+je croi que oui | je crois que oui
+il fait chaud aujourdhui | il fait chaud aujourd'hui
+elle est arrivé en retard | elle est arrivée en retard
+ils ont mangé avc nous | ils ont mangé avec nous
+c'est pour toi | c'est pour toi
+elle est dans sa chambre | elle est dans sa chambre
+les chats dorme sur le canapé | les chats dorment sur le canapé
+nous mangeont à midi | nous mangeons à midi
+vous chanter bien | vous chantez bien
+il a finit ses devoirs | il a fini ses devoirs
+j'ai pris mon vélo | j'ai pris mon vélo
+elle a beaucoup de patience | elle a beaucoup de patience
+# --- troisième série : homophones et conjugaison (écrite avant toute retouche)
+il est allé a Paris | il est allé à Paris
+elle a un chat et un chien | elle a un chat et un chien
+mon frère et grand | mon frère est grand
+ils son contents | ils sont contents
+c'est son vélo | c'est son vélo
+il se lave les mains | il se lave les mains
+ce matin il pleut | ce matin il pleut
+il c'est trompé | il s'est trompé
+s'est mon livre | c'est mon livre
+je ne sais pas ou il est | je ne sais pas où il est
+tu veux du thé ou du café | tu veux du thé ou du café
+j'ai pris mais affaires | j'ai pris mes affaires
+il peu venir | il peut venir
+il y a peu de monde | il y a peu de monde
+je leurs ai dit | je leur ai dit
+leur parents sont gentils | leurs parents sont gentils
+tous le monde est là | tout le monde est là
+ils sont tout partis | ils sont tous partis
+il est la | il est là
+quand a moi je reste | quant à moi je reste
+j'ai manger une pomme | j'ai mangé une pomme
+il faut mangé | il faut manger
+je vais travaillé | je vais travailler
+elle a acheter du pain | elle a acheté du pain
+nous avons fini | nous avons fini
+je mangeait une pomme | je mangeais une pomme
+tu jouait dehors | tu jouais dehors
+ils jouait au foot | ils jouaient au foot
+on a fait nos devoir | on a fait nos devoirs
+ils ont pris leur sac | ils ont pris leur sac
+elle sait nager | elle sait nager
+ses parents sont partis | ses parents sont partis
+je sais qu'il viendra | je sais qu'il viendra
+ça va bien | ça va bien
+sa mère est gentille | sa mère est gentille

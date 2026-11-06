@@ -728,7 +728,7 @@ impl Lexicon {
         // après « un », « le »… un nom ou un adjectif (téléphone) bat un verbe (téléphoné) à moins d'écart
         let noun_wins = hint.number.is_some()
             && matches!(best.0.top_tag(), "NOM" | "ADJ")
-            && scored.get(1).is_some_and(|next| matches!(next.0.top_tag(), "VER" | "AUX"));
+            && scored.get(1).is_some_and(|next| matches!(next.0.top_tag(), "VER" | "AUX") || next.0.is_participle());
         let margin = if noun_wins { 1.0 } else { 3.0 };
         // un mot rare (« mondée ») n'est pas choisi sans demander : on ne le fait pas à la place de l'élève
         let sure = best.0.weight >= 1.5 && scored.get(1).is_none_or(|next| best.1 - next.1 >= margin);
@@ -769,6 +769,55 @@ impl Lexicon {
 
     fn verb_expected(hint: &Hint) -> bool {
         hint.person.is_some() && hint.pronoun && !hint.participle && !hint.infinitive
+    }
+
+    /// Un mot de trois lettres auquel il manque une lettre, quand ce ne peut être qu'un mot très courant
+    /// (« avc » : avec, « dns » : dans, « ele » : elle). Les petits mots sont trop souvent de l'argot ou des
+    /// sigles pour une recherche plus large : seuls les mots les plus fréquents, compatibles avec les voisins.
+    pub fn short_typo(&self, typed: &str, hint: &Hint) -> Option<String> {
+        let t = fold(typed);
+        if t.chars().count() != 3 || !t.chars().all(|c| c.is_ascii_lowercase()) {
+            return None;
+        }
+        let tb = t.as_bytes();
+        let mut found: Vec<(&Entry, f32)> = Vec::new();
+        for (k, idx) in &self.by_ortho {
+            let kb = k.as_bytes();
+            if kb.len() != 4 || kb[0] != tb[0] {
+                continue;
+            }
+            let e = &self.entries[*idx as usize];
+            if e.weight < 6.5 || !Self::compatible(e, hint) {
+                continue;
+            }
+            // une lettre en moins (pas la première)
+            let gone = (1..4).any(|i| [&kb[..i], &kb[i + 1..]].concat() == tb);
+            if gone && !found.iter().any(|(f, _)| f.word == e.word) {
+                found.push((e, e.weight + Self::adjust(e, hint) + self.context(*idx, hint, false)));
+            }
+        }
+        found.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let best = found.first()?;
+        if found.get(1).is_some_and(|n| best.1 - n.1 < 1.5) {
+            return None;
+        }
+        Some(best.0.word.clone())
+    }
+
+    /// Les mots qui se prononcent comme s'écrit `typed`, lu à la façon d'un élève (« pence » : pense, panse ;
+    /// le dictionnaire, lui, le prononce à l'anglaise), du plus courant au moins courant.
+    pub fn sound_alikes(&self, typed: &str) -> Vec<&Entry> {
+        let mut keys = vec![key(&phonemes(typed, true)), key(&phonemes(typed, false))];
+        keys.dedup();
+        let mut v: Vec<&Entry> = keys
+            .iter()
+            .flat_map(|k| range(&self.by_phon, k).iter().filter(move |(pk, _)| pk == k))
+            .map(|(_, i)| &self.entries[*i as usize])
+            .filter(|e| e.word != typed)
+            .collect();
+        v.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+        v.dedup_by(|a, b| a.word == b.word);
+        v
     }
 
     /// Les mots qui se prononcent comme `e` (ces / sait / c'est…), du plus courant au moins courant.

@@ -300,7 +300,7 @@ fn sans_accents() {
         ("elle a mange une pomme", "elle a mangé une pomme"),
         ("je suis alle a l'ecole hier", "je suis allé à l'école hier"),
         ("ca va tres bien", "ça va très bien"),
-        ("la peche est ouverte", "la peche est ouverte"),
+        ("la peche est ouverte", "la pêche est ouverte"),
         ("il a peche un poisson", "il a pêché un poisson"),
         ("le pere et la mere", "le père et la mère"),
         ("ca peche", "ça pèche"),

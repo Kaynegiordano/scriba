@@ -744,3 +744,30 @@ fn debug_gc() {
         }
     }
 }
+
+/// Fautes typiques d'un élève de 4e (data/dictee.txt) : `cargo test --release dictee -- --nocapture`.
+#[test]
+fn dictee() {
+    let (mut ok, mut n, mut broken, mut controls) = (0, 0, 0, 0);
+    for line in include_str!("../data/dictee.txt").lines().filter(|l| l.contains('|') && !l.starts_with('#')) {
+        let (typed, want) = line.split_once('|').unwrap();
+        let (typed, want) = (typed.trim(), want.trim());
+        let got = tape(typed);
+        let got = got.trim_end();
+        if typed == want {
+            controls += 1;
+            if got != want {
+                broken += 1;
+                println!("DICTEE ABÎMÉE {typed:<42} -> {got}");
+            }
+        } else {
+            n += 1;
+            if got == want {
+                ok += 1;
+            } else {
+                println!("DICTEE RATÉE  {typed:<42} -> {got:<42} (voulu : {want})");
+            }
+        }
+    }
+    println!("DICTEE corrigées {ok}/{n}, contrôles abîmés {broken}/{controls}");
+}
