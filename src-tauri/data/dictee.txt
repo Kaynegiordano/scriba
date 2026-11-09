@@ -163,3 +163,67 @@ ses parents sont partis | ses parents sont partis
 je sais qu'il viendra | je sais qu'il viendra
 ça va bien | ça va bien
 sa mère est gentille | sa mère est gentille
+# --- quatrième série : petites fautes de tous les jours (écrite avant toute retouche, 1.0.10)
+jai pas compri | j'ai pas compris
+ses pas grave | c'est pas grave
+sa va ? | ça va ?
+on se voit demin | on se voit demain
+je suis fatiguer | je suis fatigué
+j'ai oublier mon sac | j'ai oublié mon sac
+tu a fini ? | tu as fini ?
+il ont raison | ils ont raison
+je veut venir | je veux venir
+tu veut quoi | tu veux quoi
+on peux y aller | on peut y aller
+je peut pas | je peux pas
+il faut que je fasse mes devoir | il faut que je fasse mes devoirs
+je me suis tromper | je me suis trompé
+elle est aller au cinéma | elle est allée au cinéma
+merci beaucoups | merci beaucoup
+a demain | à demain
+pourquoi tu dis sa | pourquoi tu dis ça
+c'est quoi sa | c'est quoi ça
+je croit que oui | je crois que oui
+j'ai vu se film | j'ai vu ce film
+il ce lève tôt | il se lève tôt
+ont va au parc | on va au parc
+ma mère ma dit non | ma mère m'a dit non
+je lai vu hier | je l'ai vu hier
+je suis aller à la plage | je suis allé à la plage
+les vacance sont finies | les vacances sont finies
+j'ai fais mes devoirs | j'ai fait mes devoirs
+tu fait quoi | tu fais quoi
+il pleus | il pleut
+je comprend pas | je comprends pas
+je prend le bus | je prends le bus
+tu prend quoi | tu prends quoi
+je viens parceque je veux | je viens parce que je veux
+il y a quelquechose | il y a quelque chose
+en faite c'est bien | en fait c'est bien
+malgrès la pluie | malgré la pluie
+dailleurs je sais pas | d'ailleurs je sais pas
+toute les filles sont là | toutes les filles sont là
+tout les jours | tous les jours
+nous avont gagné | nous avons gagné
+vous avez manger ? | vous avez mangé ?
+on c'est vu hier | on s'est vu hier
+mes copain sont là | mes copains sont là
+les chien aboient | les chiens aboient
+il a acheté des pomme | il a acheté des pommes
+il est partit | il est parti
+elle a dit qu'elle viendrais | elle a dit qu'elle viendrait
+biensur que oui | bien sûr que oui
+peut etre demain | peut-être demain
+ca va | ça va
+c'est deja fini | c'est déjà fini
+on mange apres | on mange après
+je suis au college | je suis au collège
+c'est interessant | c'est intéressant
+j'ai envie de dormire | j'ai envie de dormir
+ils vont venire | ils vont venir
+il fait beau | il fait beau
+il y a pas de problème | il y a pas de problème
+c'était génial | c'était génial
+j'ai hâte de te voir | j'ai hâte de te voir
+je sais pas quoi faire | je sais pas quoi faire
+on va jouer à la console | on va jouer à la console

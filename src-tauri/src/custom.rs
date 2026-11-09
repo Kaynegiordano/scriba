@@ -6,11 +6,12 @@
 //!                     pictos=0|1|2 pictogrammes (0 = non, 1 = ceux du PC, 2 = + Internet pour les mots rares)
 //!   dictionnaire.txt  un mot par ligne (mot correct) ou « faux>juste » (correction refusée)
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 pub const OFF: u8 = 0;
 pub const SPELLING: u8 = 1;
@@ -26,6 +27,21 @@ static DOUBLE_SPACE: AtomicBool = AtomicBool::new(true);
 struct Custom {
     words: HashSet<String>,
     ignore: HashSet<String>,
+    /// refusé d'un retour arrière : laissé tranquille un moment seulement (mot ou « faux>juste »)
+    soon: HashMap<String, Instant>,
+    /// combien de fois chaque mot a été refusé depuis le démarrage
+    refused: HashMap<String, u8>,
+}
+
+/// Une correction annulée d'un retour arrière n'est pas refaite pendant ce temps.
+const FORGET: Duration = Duration::from_secs(600);
+/// En tête du dictionnaire nettoyé (les versions d'avant 1.0.10 apprenaient chaque retour arrière).
+const HEADER: &str = "# Scriba 2 : mots ajoutés (F8, ou refusés deux fois)";
+
+impl Custom {
+    fn fresh(&self, key: &str) -> bool {
+        self.soon.get(key).is_some_and(|t| t.elapsed() < FORGET)
+    }
 }
 
 static CUSTOM: OnceLock<Mutex<Custom>> = OnceLock::new();
@@ -136,12 +152,65 @@ fn save() {
 
 /// Mot ajouté par l'élève : jamais signalé comme faute.
 pub fn knows(word: &str) -> bool {
-    custom().lock().unwrap().words.contains(&word.to_lowercase())
+    let w = word.to_lowercase();
+    let c = custom().lock().unwrap();
+    c.words.contains(&w) || c.fresh(&w)
 }
 
 /// Correction « faux -> juste » refusée par l'élève.
 pub fn ignored(original: &str, replacement: &str) -> bool {
-    custom().lock().unwrap().ignore.contains(&format!("{}>{}", original.to_lowercase(), replacement.to_lowercase()))
+    let key = format!("{}>{}", original.to_lowercase(), replacement.to_lowercase());
+    let c = custom().lock().unwrap();
+    c.ignore.contains(&key) || c.fresh(&key)
+}
+
+/// Retour arrière juste après la correction d'un mot : on ne la refait pas tout de suite. Le mot n'est appris
+/// (pour toujours) que refusé une deuxième fois, et seulement s'il ne ressemble pas à un mot courant mal tapé
+/// (`learnable`) : un retour arrière est souvent un réflexe (effacer l'espace, reprendre la phrase), pas un « non ».
+pub fn refuse_word(word: &str, learnable: bool) {
+    let w = word.to_lowercase();
+    let mut c = custom().lock().unwrap();
+    c.soon.insert(w.clone(), Instant::now());
+    let n = c.refused.entry(w.clone()).or_insert(0);
+    *n += 1;
+    if *n >= 2 && learnable && c.words.insert(w.clone()) {
+        drop(c);
+        append(&w);
+    }
+}
+
+/// Retour arrière juste après une correction de grammaire : jamais retenu pour toujours (« je prend » est
+/// une faute dans presque toutes les phrases), seulement pour un moment.
+pub fn refuse_pair(original: &str, replacement: &str) {
+    let key = format!("{}>{}", original.to_lowercase(), replacement.to_lowercase());
+    custom().lock().unwrap().soon.insert(key, Instant::now());
+}
+
+/// Nettoie, une fois, un dictionnaire écrit par une version d'avant 1.0.10 : chaque retour arrière y
+/// ajoutait la faute (« avan », « fair ») ou bloquait une règle (« prend>prends »). Ne garde que les mots
+/// que `keep` accepte ; l'ancien fichier est conservé à côté.
+pub fn tidy(keep: impl Fn(&str) -> bool) {
+    if cfg!(test) {
+        return;
+    }
+    let Some(d) = dir() else { return };
+    let path = d.join("dictionnaire.txt");
+    let Ok(t) = std::fs::read_to_string(&path) else { return };
+    if t.lines().next().is_some_and(|l| l.trim() == HEADER) {
+        return;
+    }
+    let _ = std::fs::write(d.join("dictionnaire.avant-1.0.10.txt"), &t);
+    let mut c = custom().lock().unwrap();
+    c.ignore.clear();
+    c.words.retain(|w| keep(w));
+    let mut words: Vec<&String> = c.words.iter().collect();
+    words.sort();
+    let mut out = format!("{HEADER}\n");
+    for w in words {
+        out.push_str(w);
+        out.push('\n');
+    }
+    let _ = std::fs::write(&path, out);
 }
 
 pub fn add_word(word: &str) {
@@ -151,20 +220,18 @@ pub fn add_word(word: &str) {
     }
 }
 
-pub fn add_ignore(original: &str, replacement: &str) {
-    let l = format!("{}>{}", original.to_lowercase(), replacement.to_lowercase());
-    if custom().lock().unwrap().ignore.insert(l.clone()) {
-        append(&l);
-    }
-}
-
 fn append(line: &str) {
     if cfg!(test) {
         return;
     }
     let Some(d) = dir() else { return };
     let _ = std::fs::create_dir_all(&d);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(d.join("dictionnaire.txt")) {
+    let path = d.join("dictionnaire.txt");
+    let new = !path.exists();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        if new {
+            let _ = writeln!(f, "{HEADER}");
+        }
         let _ = writeln!(f, "{line}");
     }
 }

@@ -496,6 +496,23 @@ fn match_case(model: &str, word: &str) -> String {
     }
 }
 
+/// « il ont », « elle sont », « il font » : le verbe au pluriel ne se prononce pas comme au singulier (a, est, fait) ;
+/// c'est plus sûrement le sujet qui a perdu son s.
+fn plural_pronoun(lex: &Lexicon, pron: &str, verb: &Entry) -> Option<&'static str> {
+    let plural = match pron {
+        "il" => "ils",
+        "elle" => "elles",
+        _ => return None,
+    };
+    if !verb.has_person(6) || verb.has_person(3) {
+        return None;
+    }
+    let sing = verb.verbs.iter().find_map(|(l, fs)| {
+        fs.iter().find(|f| f.person == 6).and_then(|f| lex.conj(*l, Form { person: 3, ..*f }))
+    })?;
+    (!same_sound(sing, &verb.word)).then_some(plural)
+}
+
 fn ending_tip(p: u8, subject: &str) -> String {
     let rule = match p {
         1 => "le verbe se termine souvent par -e, -s ou -x",
@@ -889,7 +906,27 @@ fn split_words(lex: &Lexicon, w: &str) -> Option<String> {
         }
         found = Some(format!("{head} {}", e.word));
     }
-    found
+    if found.is_some() {
+        return found;
+    }
+    // deux mots courants qui vont très souvent ensemble (« quelquechose », « entrain », « pluto ») : un seul découpage
+    let chars: Vec<char> = w.chars().collect();
+    let mut best: Option<(String, u32)> = None;
+    for k in 2..chars.len().saturating_sub(1) {
+        let (a, b): (String, String) = (chars[..k].iter().collect(), chars[k..].iter().collect());
+        let (Some(ea), Some(eb)) = (lex.lookup(&a), lex.lookup(&b)) else { continue };
+        if ea.weight() < 3.5 || eb.weight() < 3.5 {
+            continue;
+        }
+        let Some((n, assoc)) = lex.ngrams().pair_words(&a, &b) else { continue };
+        if n >= 30 && assoc >= 2.5 {
+            if best.is_some() {
+                return None;
+            }
+            best = Some((format!("{a} {b}"), n));
+        }
+    }
+    best.map(|(s, _)| s)
 }
 
 /// La proposition a déjà un verbe conjugué avec son sujet avant le mot `i` (« il mange des pâtes | a »).
@@ -1075,6 +1112,15 @@ fn adj_agreement(lex: &Lexicon, toks: &[Token], i: usize, e: &Entry) -> Option<(
 }
 
 /// « mangée » -> « mangé », « prises » -> « pris » : le participe au masculin singulier.
+/// Le participe passé masculin singulier d'un verbe (« partir » -> parti, pas « partie »).
+fn base_participle(lex: &Lexicon, lemma: u32) -> Option<String> {
+    let p = lex.conj(lemma, Form { mode: PAR, tense: PAS, person: 0 })?;
+    if lex.lookup(p).is_some_and(|x| x.gn == 0 || x.gn & MS != 0) {
+        return Some(p.to_string());
+    }
+    masculine_participle(lex, p).or_else(|| Some(p.to_string()))
+}
+
 fn masculine_participle(lex: &Lexicon, w: &str) -> Option<String> {
     ["es", "e", "s"].iter().find_map(|suffix| {
         let m = w.strip_suffix(suffix)?;
@@ -1460,6 +1506,13 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 fix("à".into(), "Après ce verbe, c'est la préposition « à » (on ne peut pas dire « avait »).".into(), "homophone", true);
                 continue;
             }
+            // « a demain », « a plus tard », « a toi de jouer » : en tête de phrase, sans sujet, c'est « à »
+            "a" if (i == 0 || toks[i - 1].sent != t.sent)
+                && next.is_some_and(|n| n.sent == t.sent && !n.hyph && !lex.lookup(&n.lower).is_some_and(|x| x.is_participle() && !x.has_tag("ADJ") && !x.has_tag("NOM"))) =>
+            {
+                fix("à".into(), "Sans sujet devant (on ne peut pas dire « avait »), c'est la préposition « à ».".into(), "homophone", true);
+                continue;
+            }
             // « j'ai pris mais affaires » : juste après un verbe, devant un nom au pluriel, c'est « mes »
             "mais" if prev.and_then(|p| lex.lookup(p)).is_some_and(|p| !p.verbs.is_empty() && matches!(p.top_tag(), "VER" | "AUX"))
                 && next_entry.is_some_and(|n| n.top_tag() == "NOM" && n.gn != 0 && n.gn & SING == 0) =>
@@ -1633,7 +1686,12 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 fix("là".into(), "« là » avec un accent : on peut dire « ici ».".into(), "homophone", true);
                 continue;
             }
-            "sa" if next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_finite()) => {
+            "sa" if next_entry.is_some_and(|n| n.top_tag() == "VER" && n.is_finite())
+                // « pourquoi tu dis sa. », « c'est quoi sa » + Entrée : rien après, ce n'est pas un déterminant
+                || (next.is_none() && matches!(after, Some('.' | '!' | '?' | ',' | ';' | ':' | '\n' | '\r')))
+                // « sa me plaît », « sa ne va pas », « sa y est »
+                || next.is_some_and(|n| matches!(n.lower.as_str(), "me" | "m'" | "te" | "t'" | "ne" | "n'" | "y" | "en" | "lui" | "leur" | "nous" | "vous" | "se" | "s'" | "c'" | "ce" | "c'est" | "aussi" | "alors" | "quoi")) =>
+            {
                 fix("ça".into(), "On peut dire « cela » : on écrit « ça ».".into(), "homophone", true);
                 continue;
             }
@@ -1722,9 +1780,12 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
 
         // 3 bis. après avoir ou être, une forme conjuguée qui se prononce comme le participe : « il a finit » -> fini
         if verb_first && e.is_finite() && !e.is_participle() && !lemma.ends_with("er") && !lemma.is_empty() {
-            if let (Some((_, _)), Some(l)) = (aux_before(lex, toks, i), e.lemma()) {
-                let pp = lex.conj(l, Form { mode: PAR, tense: PAS, person: 0 });
-                if let Some(p) = pp.filter(|p| *p != lower && same_sound(lower, p)) {
+            if let (Some((aux, j)), Some(l)) = (aux_before(lex, toks, i), e.lemma()) {
+                let pp = base_participle(lex, l).map(|p| match etre_subject(lex, toks, j).filter(|_| aux == "être") {
+                    Some((need, _)) if lex.lookup(&p).is_some_and(|x| x.gn & need == 0) => agree(lex, &p, need).unwrap_or(p),
+                    _ => p,
+                });
+                if let Some(p) = pp.filter(|p| p != lower && same_sound(lower, p)) {
                     fix(p.to_string(), format!("Après « avoir » ou « être », on met le participe passé : « {p} »."), "verbe", true);
                     continue;
                 }
@@ -1780,6 +1841,24 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         } else {
             None
         };
+        // « il ont raison » : « ont » ne se lit pas « a » : c'est le sujet qui a perdu son s, on corrige « il »
+        if let Some((_, k)) = subj.filter(|(_, k)| k + 1 == i) {
+            if let Some(pl) = plural_pronoun(lex, &toks[k].lower, e) {
+                let replacement = match_case(&toks[k].text, pl);
+                if !custom::ignored(&toks[k].text, &replacement) {
+                    out.push(Correction {
+                        start: toks[k].start,
+                        end: toks[k].end,
+                        original: toks[k].text.clone(),
+                        replacement,
+                        reason: format!("« {} » est au pluriel : le sujet aussi, « {pl} ».", t.text),
+                        kind: "accord",
+                        auto: true,
+                    });
+                    continue;
+                }
+            }
+        }
         if let Some((p, k)) = subj.or(group_subj) {
             if e.is_finite() && !pronoun_word && !e.has_person(p) && (verb_first || i == k + 1 || group_subj.is_some()) {
                 let target = e
@@ -1829,6 +1908,25 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 if better {
                     fix(f.clone(), format!("Il manque une apostrophe : « {f} »."), "orthographe", true);
                     continue;
+                }
+            }
+        }
+
+        // 5 octies. « je lai vu », « il lavait dit », « elle tavait prévenu » : juste après le sujet, un mot rare qui se lit
+        // « l' », « m' », « t' », « s' », « n' » + un verbe courant conjugué avec ce sujet ; l'apostrophe a été oubliée
+        if let Some((p, k)) = subj.filter(|(_, k)| k + 1 == i) {
+            let pron = toks[k].lower.as_str();
+            if e.weight() < 2.5 && !e.has_person(p) && matches!(pron, "je" | "tu" | "il" | "elle" | "on" | "nous" | "vous" | "ils" | "elles") {
+                let mut cs = lower.chars();
+                let head = cs.next();
+                let rest: String = cs.collect();
+                let verb = lex.lookup(&rest).filter(|v| v.has_person(p) && v.weight() >= 3.0 && starts_with_vowel(&rest));
+                if let (Some(h @ ('l' | 'm' | 't' | 's' | 'n')), Some(v)) = (head, verb) {
+                    if !(h == 's' && !matches!(pron, "il" | "elle" | "on" | "ils" | "elles")) {
+                        let f = format!("{h}'{}", v.word);
+                        fix(f.clone(), format!("Il manque une apostrophe : « {f} »."), "orthographe", true);
+                        continue;
+                    }
                 }
             }
         }
@@ -2018,6 +2116,16 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                 lex.lookup(&toks[j].lower).is_some_and(|x| x.is_finite() && lemma_is(lex, x, &["être"]).is_some())
             });
             if let Some(j) = etre {
+                // « il est partit », « elle est sortit » : le participe passé du même verbe, qui se prononce pareil
+                let own = e.verbs.iter().find_map(|(l, _)| base_participle(lex, *l)).filter(|p| same_sound(p, lower));
+                if let Some(base) = own {
+                    let word = match etre_subject(lex, toks, j) {
+                        Some((need, _)) if lex.lookup(&base).is_some_and(|x| x.gn & need == 0) => agree(lex, &base, need).unwrap_or(base),
+                        _ => base,
+                    };
+                    fix(word.clone(), format!("Après « {} », c'est le participe passé : « {word} ».", toks[j].lower), "homophone", true);
+                    continue;
+                }
                 if let Some(h) = lex.homophones(e).into_iter().find(|h| h.has_tag("ADJ") && h.weight() >= 2.0) {
                     let base = h.word.clone();
                     let word = match etre_subject(lex, toks, j) {

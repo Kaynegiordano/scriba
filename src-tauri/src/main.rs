@@ -495,6 +495,7 @@ fn retype(erase: usize, text: &str, auto_space: bool) {
 
 fn worker(app: AppHandle, rx: Receiver<Msg>) {
     let lex = lex();
+    custom::tidy(|w| !lex.looks_like_typo(w) || crate::english::is_word(w));
     conjugator();
     let mut sentence: Vec<char> = Vec::new();
     let mut typed = String::new();
@@ -629,17 +630,16 @@ fn worker(app: AppHandle, rx: Receiver<Msg>) {
                 sentence.extend(a.undo.chars());
                 for (orig, repl, kind) in &a.pairs {
                     if *kind == "orthographe" {
-                        custom::add_word(orig);
-                    } else if orig.chars().count() > 3 {
-                        // a / et / sa / ce… : refuser une fois ne veut pas dire « jamais »
-                        custom::add_ignore(orig, repl);
+                        custom::refuse_word(orig, !lex.looks_like_typo(orig));
+                    } else {
+                        custom::refuse_pair(orig, repl);
                     }
                 }
                 let (to, from) = pairs_view(&a.pairs);
                 if bar_visible() {
                     let _ = app.emit(
                         "auto",
-                        Notice { from, to, reason: "D'accord, je ne le corrigerai plus.".into(), undone: true },
+                        Notice { from, to, reason: "D'accord, je le laisse comme ça.".into(), undone: true },
                     );
                 }
                 refresh(&sentence, &mut typed, &mut items, &mut fix);

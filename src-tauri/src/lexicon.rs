@@ -300,6 +300,13 @@ impl Ngrams {
         sa >= min && sa - sb >= gap && (next.is_some() || sb <= -never)
     }
 
+    /// Combien de fois `b` suit `a` dans le corpus, et à quel point (voir `raw`) : de quoi reconnaître deux mots
+    /// collés (« quelquechose » = « quelque » + « chose »).
+    pub fn pair_words(&self, a: &str, b: &str) -> Option<(u32, f32)> {
+        let (a, b) = (self.id(a)?, self.id(b)?);
+        Some((self.pair(a, b), self.raw(a, Some(b))))
+    }
+
     /// À quel point `b` suit volontiers `a` : ln(P(b | a) / P(b)), lissé ; 0 = sans avis.
     /// Un mot absent du modèle (`b` = None) est traité comme un mot jamais vu.
     fn raw(&self, a: u32, b: Option<u32>) -> f32 {
@@ -675,6 +682,37 @@ impl Lexicon {
             .collect();
         v.sort_by(|a, b| b.weight.total_cmp(&a.weight));
         v.into_iter().take(n).map(|e| e.word.clone()).collect()
+    }
+
+    /// Un mot inconnu qui a l'air d'un mot courant mal tapé (« avan », « fair », « mo », « gèn »), ou d'un
+    /// cri (« moiiiii ») : à ne jamais apprendre sans que l'élève le demande (F8).
+    pub fn looks_like_typo(&self, word: &str) -> bool {
+        let w = word.to_lowercase();
+        let chars: Vec<char> = w.chars().collect();
+        if chars.windows(3).any(|x| x[0] == x[1] && x[1] == x[2]) {
+            return true;
+        }
+        if self.lookup(&w).is_some() {
+            return false;
+        }
+        let f = fold(&w);
+        let fb = f.as_bytes();
+        if self.same_letters(&w).iter().any(|e| e.weight >= 3.0) {
+            return true;
+        }
+        // une lettre doublée par erreur (« couiilles », « appell ») : sans elle, c'est un mot connu
+        if (1..chars.len()).any(|i| chars[i] == chars[i - 1] && {
+            let mut c = chars.clone();
+            c.remove(i);
+            self.lookup(&c.into_iter().collect::<String>()).is_some()
+        }) {
+            return true;
+        }
+        // un mot anglais (« why », « kitten ») n'est une faute que tout près d'un mot français très courant (« fair »)
+        let floor = if crate::english::is_word(&w) { 6.0 } else { 4.0 };
+        self.by_ortho.iter().any(|(k, i)| {
+            k.len().abs_diff(fb.len()) <= 1 && self.entries[*i as usize].weight >= floor && edit_distance(k.as_bytes(), fb) == 1
+        })
     }
 
     /// Le mot exact (minuscules), s'il existe.

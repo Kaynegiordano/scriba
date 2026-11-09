@@ -771,3 +771,38 @@ fn dictee() {
     }
     println!("DICTEE corrigées {ok}/{n}, contrôles abîmés {broken}/{controls}");
 }
+
+/// Un retour arrière ne doit jamais faire apprendre une faute de frappe d'un mot courant.
+#[test]
+fn typo_like() {
+    let lex = lex();
+    for w in ["avan", "fair", "mo", "gèn", "moiiiii", "couiilles", "pass", "ecole", "cest", "appell"] {
+        assert!(lex.looks_like_typo(w), "{w} devrait ressembler à une faute");
+    }
+    for w in ["iphone", "loras", "shaders", "presets", "kitten", "fork", "modifs", "why", "zeroday", "plateformes", "maison"] {
+        assert!(!lex.looks_like_typo(w), "{w} ne devrait pas ressembler à une faute");
+    }
+}
+
+/// Outil : les mots anglais de la liste qui sont à une lettre d'un mot français courant
+/// (`cargo test --release debug_english -- --nocapture --ignored`).
+#[test]
+#[ignore]
+fn debug_english() {
+    let lex = lex();
+    for w in include_str!("../data/english.txt").lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let s = format!("je pense que {w} est bien");
+        let chars: Vec<char> = s.chars().collect();
+        let fx: Vec<_> = auto_fixes(lex, &chars, '\n', custom::FULL).into_iter().map(|c| format!("{}>{}", c.original, c.replacement)).collect();
+        println!("{w:<14} fr={:<5} typo={:<5} {:?}", lex.lookup(w).is_some(), lex.looks_like_typo(w), fx);
+    }
+}
+
+/// Outil : SCRIBA_WORDS="a|b|c" -> ces mots ressemblent-ils à des fautes de frappe ?
+#[test]
+#[ignore]
+fn debug_typo() {
+    for w in std::env::var("SCRIBA_WORDS").unwrap_or_default().split('|').filter(|w| !w.is_empty()) {
+        println!("{w:<14} {}", if lex().looks_like_typo(w) { "faute -> retiré" } else { "gardé" });
+    }
+}
