@@ -393,6 +393,10 @@ fn aux_before<'a>(lex: &'a Lexicon, toks: &[Token], i: usize) -> Option<(&'stati
     }
     let e = lex.lookup(&toks[j].lower)?;
     let aux = lemma_is(lex, e, &["avoir", "être"])?;
+    // « je regrette d'avoir négligé », « après être parti » : l'auxiliaire à l'infinitif n'a pas de sujet
+    if matches!(toks[j].lower.as_str(), "avoir" | "être") {
+        return Some((aux, j));
+    }
     if !e.is_finite() || (!inverted && subject_before(toks, j).is_none() && noun_subject(lex, toks, j).is_none()) {
         return None;
     }
@@ -438,6 +442,12 @@ fn det_number(toks: &[Token], i: usize, lex: &Lexicon) -> Option<(u8, usize)> {
         return None;
     }
     let w = toks[j].lower.as_str();
+    // « quelle équipe », « quel problème » : un nom suit, comme après un déterminant
+    match w {
+        "quel" => return Some((MS, j)),
+        "quelle" => return Some((FS, j)),
+        _ => {}
+    }
     if !(det_plur(w) || DET_SING.contains(&w) || w == "l'") {
         return None;
     }
@@ -1870,6 +1880,15 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
                         fs.into_iter().map(move |f| (*l, f))
                     })
                     .find_map(|(l, f)| lex.conj(l, Form { person: p, ..f }));
+                // d'abord la forme qui se prononce comme ce qui a été tapé : c'est le son que l'élève a écrit
+                // (« nous somme » : sommes, pas sommons ; « tu devrai » : devrais ; « il viendrai » : viendrait)
+                let sound = lex
+                    .homophones(e)
+                    .into_iter()
+                    .filter(|h| h.has_person(p) && matches!(h.top_tag(), "VER" | "AUX") && h.weight() >= 2.0)
+                    .max_by(|a, b| a.weight().total_cmp(&b.weight()))
+                    .map(|h| h.word.as_str());
+                let target = sound.or(target);
                 if let Some(target) = target {
                     let tip = if group_subj.is_some() {
                         let who = pronoun(p);
@@ -1931,6 +1950,18 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
             }
         }
 
+        // 5 nonies. « je voudrai savoir », « j'aimerai bien venir » : pour demander ou souhaiter, c'est le conditionnel
+        // (-rais) ; le futur ne reste que s'il est annoncé (« demain », « quand »…)
+        if subj.is_some_and(|(p, k)| p == 1 && k + 1 == i) && matches!(lower, "voudrai" | "aimerai" | "souhaiterai" | "préférerai" | "adorerai") {
+            let wish = next.is_some_and(|n| n.lower == "bien" || lex.lookup(&n.lower).is_some_and(|x| x.is_infinitive()) || matches!(n.lower.as_str(), "que" | "qu'" | "un" | "une" | "du" | "des" | "te" | "vous" | "le" | "la" | "les"));
+            let announced = toks.iter().filter(|x| x.sent == t.sent).any(|x| matches!(x.lower.as_str(), "quand" | "lorsque" | "lorsqu'" | "demain" | "bientôt" | "plus" | "tard" | "jour"));
+            if wish && !announced {
+                let cnd = format!("{lower}s");
+                fix(cnd.clone(), format!("Pour demander ou souhaiter, c'est le conditionnel : « {cnd} » (on peut dire « nous voudrions »)."), "accord", true);
+                continue;
+            }
+        }
+
         // 5 sexies. « quand je serais grand », « demain je mangerais » : le futur (-rai), pas le conditionnel (-rais)
         if subj.is_some_and(|(p, _)| p == 1) && lower.ends_with("rais") && e.forms().any(|(_, f)| f.mode == CND && f.person == 1) {
             let before: Vec<&str> = toks[..i].iter().filter(|x| x.sent == t.sent).map(|x| x.lower.as_str()).collect();
@@ -1987,8 +2018,11 @@ fn check_rules(lex: &Lexicon, chars: &[char]) -> Vec<Correction> {
         if subj.is_none() {
             if let Some((p, k)) = noun_subj.filter(|(_, k)| k + 1 == i) {
                 let other = ["ADV", "PRE", "CON", "PRO", "ADJ", "ART"].iter().any(|x| e.has_tag(x));
-                if e.verbs.is_empty() && e.top_tag() == "NOM" && !other && lower.chars().count() > 2 {
-                    if let Some(h) = lex.homophones(e).into_iter().find(|h| h.has_person(p) && matches!(h.top_tag(), "VER" | "AUX")) {
+                // « mes parents veule pas » : un adjectif rare qui se prononce comme un verbe bien plus courant
+                let rare_adj = e.verbs.is_empty() && e.top_tag() == "ADJ" && e.weight() < 2.5 && lower.chars().count() > 3;
+                let verb_far_commoner = |h: &Entry| h.weight() >= e.weight() + 2.0;
+                if (e.verbs.is_empty() && e.top_tag() == "NOM" && !other && lower.chars().count() > 2) || rare_adj {
+                    if let Some(h) = lex.homophones(e).into_iter().find(|h| h.has_person(p) && matches!(h.top_tag(), "VER" | "AUX") && (!rare_adj || verb_far_commoner(h))) {
                         let who = group_label(lex, toks, k);
                         fix(h.word.clone(), format!("Après « {who} », il faut un verbe conjugué : « {} ».", h.word), "homophone", true);
                         continue;

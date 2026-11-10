@@ -227,3 +227,43 @@ c'était génial | c'était génial
 j'ai hâte de te voir | j'ai hâte de te voir
 je sais pas quoi faire | je sais pas quoi faire
 on va jouer à la console | on va jouer à la console
+# --- cinquième série : phrases plus longues, plusieurs fautes (écrite avant toute retouche, 1.0.11)
+hier j'ai jouer au foot avec mes copain et on a gagner | hier j'ai joué au foot avec mes copains et on a gagné
+je sais pas si il vas venir demain | je sais pas si il va venir demain
+ma soeur a oublier ses clé a la maison | ma sœur a oublié ses clés à la maison
+les professeur nous on donné beaucoup de devoir | les professeurs nous ont donné beaucoup de devoirs
+je voudrai savoir si tu peut m'aider | je voudrais savoir si tu peux m'aider
+il faut que je range ma chambre avant que maman arrive | il faut que je range ma chambre avant que maman arrive
+on est aller au cinema et c'etait super | on est allé au cinéma et c'était super
+elle ma dit qu'elle etait malade | elle m'a dit qu'elle était malade
+je croyait que tu etait parti | je croyais que tu étais parti
+tu a vu le match hier soir ? | tu as vu le match hier soir ?
+mes parent veule pas que je sorte | mes parents veulent pas que je sorte
+j'ai trop envi de dormir | j'ai trop envie de dormir
+il a dis qu'il viendrai | il a dit qu'il viendrait
+nous somme arriver en retard a cause du bus | nous sommes arrivés en retard à cause du bus
+je te remerci pour ton aide | je te remercie pour ton aide
+c'est vraiment dommage que tu ne puisse pas venir | c'est vraiment dommage que tu ne puisses pas venir
+je me suis reveiller tres tot ce matin | je me suis réveillé très tôt ce matin
+les eleves doivent rendre leur devoirs lundi | les élèves doivent rendre leurs devoirs lundi
+est ce que tu a fini tes exercice ? | est ce que tu as fini tes exercices ?
+j'aimerai bien allé à la piscine | j'aimerais bien aller à la piscine
+il n'y a plus de pain a la boulangerie | il n'y a plus de pain à la boulangerie
+on c'est bien amusé a la fete | on s'est bien amusé à la fête
+je doit finir mon exposer pour demain | je dois finir mon exposé pour demain
+elle es partie sans rien dire | elle est partie sans rien dire
+ils veulent pas nous laisser tranquille | ils veulent pas nous laisser tranquille
+tu devrai essayer, c'est facile | tu devrais essayer, c'est facile
+j'ai reçu ton message se matin | j'ai reçu ton message ce matin
+il fait trop chaud pour sortire | il fait trop chaud pour sortir
+mon chien a manger mes chaussure | mon chien a mangé mes chaussures
+je compren rien a cet exercice | je comprends rien à cet exercice
+sa fait longtemps qu'on c'est pas vu | ça fait longtemps qu'on s'est pas vu
+tu veux venir chez moi apres les cours ? | tu veux venir chez moi après les cours ?
+la prof de math est absente aujourd'hui | la prof de math est absente aujourd'hui
+je vais lui demandé si elle veut venir | je vais lui demander si elle veut venir
+on a du attendre une heure | on a dû attendre une heure
+il a plu toute la journée | il a plu toute la journée
+je suis sur que c'est lui | je suis sûr que c'est lui
+ils ont tous réussi leur examen | ils ont tous réussi leur examen
+quelle heure il est ? | quelle heure il est ?

@@ -1,6 +1,6 @@
 [package]
 name = "scriba"
-version = "1.0.10"
+version = "1.0.11"
 description = "Scriba — aide à l'écriture"
 edition = "2021"
 

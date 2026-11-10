@@ -246,6 +246,21 @@ fn veto_params() -> (f32, f32, f32) {
     DEFAULT
 }
 
+/// (écart de fréquence toléré, bonus) pour préférer une simple faute de frappe à un mot de même son écrit autrement
+/// (modifiables par SCRIBA_NEAR="écart,bonus" dans les tests).
+fn near_params() -> (f32, f32) {
+    #[cfg(test)]
+    {
+        if let Ok(v) = std::env::var("SCRIBA_NEAR") {
+            let p: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+            if p.len() == 2 {
+                return (p[0], p[1]);
+            }
+        }
+    }
+    (1.0, 0.0)
+}
+
 impl Ngrams {
     pub fn load(data: &str) -> Self {
         let mut m = Ngrams::default();
@@ -1052,6 +1067,12 @@ impl Lexicon {
                 }
             }
         }
+        // la meilleure simple faute de frappe (« paus » : pause, « compt » : compte), gardée de côté : un mot qui
+        // se prononce pareil mais s'écrit tout autrement (peau, con) ne doit pas l'écraser sans raison
+        let near_typo: Option<(u32, f32)> = typo
+            .keys()
+            .map(|i| (*i, cands[i]))
+            .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)));
         let mut ranked: Vec<(u32, f32)> = cands.into_iter().collect();
         ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         // un mot courant qui se prononce exactement comme ce qui a été tapé (« pleu » : pleut) passe
@@ -1071,6 +1092,15 @@ impl Lexicon {
             }
         }
         let best = ranked.first()?;
+        if let Some((alt, alt_score)) = near_typo.filter(|(i, _)| *i != best.0) {
+            let (b, a) = (&self.entries[best.0 as usize], &self.entries[alt as usize]);
+            let far = edit_distance(fold(&b.word).as_bytes(), folded.as_bytes()) >= 2;
+            // (un candidat bien moins probable dans la phrase ne compte pas : « des zenfan » reste « des enfants »)
+            if far && a.weight >= b.weight - near_params().0 && alt_score + 3.0 >= best.1 {
+                // aussi courant et bien plus proche de ce qui a été tapé : c'est lui, ou alors on ne sait pas
+                return (alt_score + near_params().1 >= best.1).then(|| a.word.clone());
+            }
+        }
         // un mot rare (« hugh » pour « hugo ») n'est pas une cible crédible d'une simple faute de frappe
         if !phonetic.contains(&best.0) && self.entries[best.0 as usize].weight < 1.5 {
             return None;
