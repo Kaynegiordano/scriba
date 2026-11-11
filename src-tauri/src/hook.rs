@@ -177,6 +177,50 @@ static AUTO_SPACE: AtomicBool = AtomicBool::new(false);
 pub static OWN_HWND: AtomicIsize = AtomicIsize::new(0);
 /// Touche dont on doit aussi avaler le relâchement.
 static SWALLOW_UP: AtomicU32 = AtomicU32::new(0);
+/// Verr. Maj est enfoncée (la répétition automatique d'une touche maintenue ne rebascule rien).
+static CAPS_HELD: AtomicBool = AtomicBool::new(false);
+
+/// L'état réel de Verr. Maj, lu dans la file d'entrée de la fenêtre active. Le crochet clavier ne le voit
+/// pas lui-même : une bascule manquée (crochet retiré un instant par Windows, réglage « Maj désactive
+/// Verr. Maj », touche maintenue) laissait Scriba croire tout le texte en majuscules, et une correction
+/// retapait alors « AM2LIORER L4INTERFACE » à la place de ce que l'élève avait écrit.
+fn real_caps() -> Option<bool> {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        let tid = GetWindowThreadProcessId(fg, &mut pid);
+        let me = GetCurrentThreadId();
+        if tid == 0 || tid == me {
+            return None;
+        }
+        if AttachThreadInput(me, tid, 1) == 0 {
+            return None;
+        }
+        let on = GetKeyState(VK_CAPITAL as i32) & 1 != 0;
+        AttachThreadInput(me, tid, 0);
+        Some(on)
+    }
+}
+
+/// Recale régulièrement Scriba sur l'état réel de Verr. Maj (rien n'est fait pendant une correction).
+fn watch_caps() {
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if BUSY.load(Ordering::Relaxed) || CAPS_HELD.load(Ordering::Relaxed) {
+            continue;
+        }
+        if let Some(on) = real_caps() {
+            let mut st = STATE.lock().unwrap();
+            if st.caps != on {
+                st.caps = on;
+            }
+        }
+    });
+}
 
 fn send(m: Msg) {
     if let Some(tx) = TX.get() {
@@ -209,6 +253,12 @@ fn focus_is_password(fg: isize) -> bool {
     }
 }
 
+/// Un chiffre au milieu d'un mot (« AM2LIORER », « L4INTERFACE ») : ce que Scriba a noté ne correspond
+/// pas à ce qui est à l'écran (Verr. Maj ou Maj mal suivis). Retaper ce passage l'abîmerait : on s'abstient.
+fn garbled(tail: &[char]) -> bool {
+    tail.windows(3).any(|w| w[0].is_alphabetic() && w[1].is_ascii_digit() && w[2].is_alphabetic())
+}
+
 /// La correction sûre du mot qui se termine, s'il y en a une.
 fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
     let mode = crate::custom::mode();
@@ -226,6 +276,9 @@ fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
     let fixes = crate::grammar::auto_fixes(lex, &st.sentence, term, mode);
     let start = fixes.first()?.start;
     let sentence = &st.sentence;
+    if garbled(&sentence[start..]) {
+        return None;
+    }
     let mut text = String::new();
     let mut pos = start;
     for c in &fixes {
@@ -363,6 +416,7 @@ pub fn last_target() -> isize {
 
 pub fn start(tx: Sender<Msg>) {
     let _ = TX.set(tx);
+    watch_caps();
     std::thread::spawn(|| unsafe {
         STATE.lock().unwrap().caps = GetKeyState(VK_CAPITAL as i32) & 1 != 0;
         use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -436,6 +490,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LR
                 return 1;
             }
 
+            if up && k.vkCode == VK_CAPITAL as u32 {
+                CAPS_HELD.store(false, Ordering::Relaxed);
+            }
             let swallow = if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
                 let s = on_key_down(k);
                 if s {
@@ -489,6 +546,14 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         return true;
     }
 
+    if vk == VK_CAPITAL {
+        if !CAPS_HELD.swap(true, Ordering::Relaxed) {
+            let mut st = STATE.lock().unwrap();
+            st.caps = !st.caps;
+        }
+        return false;
+    }
+
     // Fenêtres de Scriba (barre, conjugaison) : on n'y suit pas la frappe
     let fg = GetForegroundWindow() as isize;
     let mut pid = 0u32;
@@ -498,10 +563,6 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
     }
 
     let mut st = STATE.lock().unwrap();
-    if vk == VK_CAPITAL {
-        st.caps = !st.caps;
-        return false;
-    }
     if fg != st.last_fg {
         st.last_fg = fg;
         st.paused = looks_like_game(fg as HWND);
@@ -687,4 +748,15 @@ unsafe extern "system" fn mouse_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESU
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
+}
+
+#[cfg(test)]
+mod caps_tests {
+    #[test]
+    fn copie_faussee() {
+        let g = |s: &str| super::garbled(&s.chars().collect::<Vec<_>>());
+        assert!(g("a AM2LIORER L4INTERFACE PAR "));
+        assert!(!g("a améliorer l'interface par "));
+        assert!(!g("j'ai 2 chats et un mp3 en 4e "));
+    }
 }
