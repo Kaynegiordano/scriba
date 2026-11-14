@@ -14,6 +14,7 @@ mod grammar;
 mod hook;
 mod inject;
 mod lexicon;
+mod net;
 mod phonetics;
 mod pictos;
 mod uia;
@@ -486,11 +487,14 @@ fn focus_target() {
     }
 }
 
-/// Retape la fin de la phrase : efface `erase` caractères, tape `text`.
+/// Retape la fin de la phrase : efface `erase` caractères, tape `text`. Ce que l'élève tape pendant ce
+/// temps attend son tour (sinon ses lettres se mêlaient à celles que Scriba retape).
 fn retype(erase: usize, text: &str, auto_space: bool) {
+    hook::begin_hold();
     hook::set_tail(erase, text, auto_space);
     focus_target();
     inject::replace(erase, text);
+    hook::finish_hold();
 }
 
 fn worker(app: AppHandle, rx: Receiver<Msg>) {
@@ -683,13 +687,26 @@ fn main() {
     if std::env::args().any(|a| a == "--update") {
         std::process::exit(updater::run_cli());
     }
-    // Une seule instance (deux hooks clavier se marcheraient dessus)
+    // Une seule instance (deux hooks clavier se marcheraient dessus). Lancée par l'ancienne version après
+    // une mise à jour, celle-ci attend d'abord que l'ancienne soit fermée.
     let name: Vec<u16> = "Local\\Scriba.Instance\0".encode_utf16().collect();
-    unsafe {
-        CreateMutexW(std::ptr::null(), 0, name.as_ptr());
-        if GetLastError() == ERROR_ALREADY_EXISTS {
-            return;
+    let tries = if std::env::args().any(|a| a == updater::AFTER_UPDATE) { 50 } else { 1 };
+    let mut alone = false;
+    for i in 0..tries {
+        unsafe {
+            let h = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            if GetLastError() != ERROR_ALREADY_EXISTS {
+                alone = true;
+                break;
+            }
+            windows_sys::Win32::Foundation::CloseHandle(h);
         }
+        if i + 1 < tries {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    if !alone {
+        return;
     }
 
     custom::load();
@@ -762,6 +779,13 @@ fn main() {
                 CheckMenuItem::with_id(app, "hidden", "Démarrer masqué", true, custom::start_hidden(), None::<&str>)?;
             let update_item = MenuItem::with_id(app, "update", "Rechercher une mise à jour…", true, None::<&str>)?;
             let version_item = MenuItem::with_id(app, "version", format!("Scriba {}", updater::VERSION), false, None::<&str>)?;
+            // où en est Grammalecte : sans Python sur le PC, Scriba corrige avec ses seules règles, et rien ne le disait
+            let grammar_item = MenuItem::with_id(app, "grammar", grammalecte::status(), false, None::<&str>)?;
+            let shown = grammar_item.clone();
+            grammalecte::on_change(move || {
+                let _ = shown.set_text(grammalecte::status());
+            });
+            let _ = grammar_item.set_text(grammalecte::status());
             let p = custom::pictos();
             let picto_items = [
                 CheckMenuItem::with_id(app, "picto0", "Désactivés", true, p == 0, None::<&str>)?,
@@ -774,7 +798,7 @@ fn main() {
                 app,
                 &[
                     &toggle_item, &conj_item, &read_item, &calc_item, &auto_menu, &picto_menu, &audio_item, &autostart_item, &hidden_item, &space_item,
-                    &update_item, &version_item, &quit_item,
+                    &update_item, &grammar_item, &version_item, &quit_item,
                 ],
             )?;
             let menu_tx = tray_tx.clone();

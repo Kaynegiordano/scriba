@@ -1,10 +1,9 @@
 //! Mises à jour : Scriba lit la dernière publication GitHub (Kaynegiordano/scriba), télécharge
 //! le nouveau Scriba.exe à côté de lui, vérifie sa taille et son empreinte SHA-256, puis
 //! remplace son propre exécutable et se relance. Rien n'est installé sans clic de l'utilisateur.
-//! Utilise curl.exe et certutil.exe, livrés avec Windows (aucune dépendance de plus).
+//! Tout passe par WinHTTP (voir `net`) : aucun programme caché n'est lancé.
 
 use serde::Serialize;
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
@@ -15,9 +14,10 @@ const API: &str = "https://api.github.com/repos/Kaynegiordano/scriba/releases/la
 fn api() -> String {
     std::env::var("SCRIBA_UPDATE_API").unwrap_or_else(|_| API.to_string())
 }
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Argument de la nouvelle version lancée par l'ancienne : attendre que l'ancienne soit fermée.
+pub const AFTER_UPDATE: &str = "--after-update";
 
 #[derive(Clone)]
 struct Pending {
@@ -58,10 +58,6 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     false
 }
 
-fn curl(args: &[&str]) -> Option<std::process::Output> {
-    Command::new("curl.exe").args(args).creation_flags(CREATE_NO_WINDOW).output().ok()
-}
-
 /// Une version de développement (dans target\release) ne se met jamais à jour.
 fn exe_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -71,12 +67,8 @@ fn exe_path() -> Option<PathBuf> {
 
 /// Cherche une version plus récente. `Err` : pas de réseau, dépôt injoignable…
 pub fn check() -> Result<Status, String> {
-    let out = curl(&["-sSL", "-m", "15", "-H", "User-Agent: Scriba", "-H", "Accept: application/vnd.github+json", &api()])
-        .ok_or("curl.exe est introuvable")?;
-    if !out.status.success() {
-        return Err("Pas de connexion à Internet".into());
-    }
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|_| "Réponse illisible")?;
+    let body = crate::net::get(&api(), &["User-Agent: Scriba", "Accept: application/vnd.github+json"])?;
+    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|_| "Réponse illisible")?;
     let tag = json["tag_name"].as_str().ok_or("Aucune publication trouvée")?.to_string();
     if !is_newer(&tag, VERSION) {
         *PENDING.lock().unwrap() = None;
@@ -95,14 +87,6 @@ pub fn check() -> Result<Status, String> {
     Ok(status("available", tag.trim_start_matches('v'), format!("Scriba {} est disponible.", tag.trim_start_matches('v')), &notes))
 }
 
-fn sha256_of(path: &PathBuf) -> Option<String> {
-    let out = Command::new("certutil.exe").args(["-hashfile"]).arg(path).arg("SHA256").creation_flags(CREATE_NO_WINDOW).output().ok()?;
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.replace(' ', "").to_lowercase())
-        .find(|l| l.len() == 64 && l.chars().all(|c| c.is_ascii_hexdigit()))
-}
-
 /// Télécharge la version annoncée par `check`, remplace l'exécutable et prépare le redémarrage.
 /// Renvoie `Ok(())` quand tout est en place : l'appelant doit alors quitter (Scriba se relance seul).
 pub fn install(relaunch: bool) -> Result<(), String> {
@@ -113,18 +97,13 @@ pub fn install(relaunch: bool) -> Result<(), String> {
     let old = dir.join("Scriba.old");
     let _ = std::fs::remove_file(&fresh);
 
-    let ok = curl(&["-sSL", "-m", "300", "-o", &fresh.to_string_lossy(), &pending.url]).is_some_and(|o| o.status.success());
-    if !ok {
-        let _ = std::fs::remove_file(&fresh);
-        return Err("Le téléchargement a échoué".into());
-    }
-    let size = std::fs::metadata(&fresh).map(|m| m.len()).unwrap_or(0);
+    let (size, sha) = crate::net::download(&pending.url, &fresh).map_err(|e| format!("Le téléchargement a échoué ({e})"))?;
     if size == 0 || (pending.size > 0 && size != pending.size) {
         let _ = std::fs::remove_file(&fresh);
         return Err("Le fichier téléchargé est incomplet".into());
     }
     if let Some(expected) = &pending.sha256 {
-        if sha256_of(&fresh).as_deref() != Some(expected.as_str()) {
+        if sha != *expected {
             let _ = std::fs::remove_file(&fresh);
             return Err("L'empreinte du fichier ne correspond pas : mise à jour refusée".into());
         }
@@ -144,12 +123,8 @@ pub fn install(relaunch: bool) -> Result<(), String> {
     if !relaunch {
         return Ok(());
     }
-    // relance après la fermeture de cette instance (une seule instance à la fois)
-    let _ = Command::new("cmd.exe")
-        .raw_arg("/C ping -n 3 127.0.0.1 >nul & start \"\" \"%SCRIBA_EXE%\"")
-        .env("SCRIBA_EXE", &exe)
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
+    // la nouvelle version attend elle-même que celle-ci soit fermée (une seule instance à la fois)
+    let _ = Command::new(&exe).arg(AFTER_UPDATE).spawn();
     Ok(())
 }
 

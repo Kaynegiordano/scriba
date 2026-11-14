@@ -44,6 +44,35 @@ enum State {
     Ready(Sender<Request>),
 }
 
+/// Pourquoi Grammalecte ne tourne pas (pour le menu de Scriba).
+static PROBLEM: Mutex<&'static str> = Mutex::new("");
+/// Prévenu à chaque changement d'état (le menu affiche alors `status()`).
+static ON_CHANGE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+pub fn on_change(f: impl Fn() + Send + Sync + 'static) {
+    let _ = ON_CHANGE.set(Box::new(f));
+}
+
+fn set_state(s: State, problem: &'static str) {
+    *state().lock().unwrap() = s;
+    *PROBLEM.lock().unwrap() = problem;
+    if let Some(f) = ON_CHANGE.get() {
+        f();
+    }
+}
+
+/// Une ligne pour le menu : où en est la grammaire de la phrase entière.
+pub fn status() -> String {
+    match &*state().lock().unwrap() {
+        State::Ready(_) => "Grammaire avancée : active".into(),
+        State::Starting => "Grammaire avancée : démarrage…".into(),
+        State::Off => {
+            let why = *PROBLEM.lock().unwrap();
+            format!("Grammaire avancée : arrêtée{}", if why.is_empty() { String::new() } else { format!(" ({why})") })
+        }
+    }
+}
+
 fn state() -> &'static Mutex<State> {
     static S: OnceLock<Mutex<State>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(State::Off))
@@ -83,33 +112,23 @@ fn python() -> Option<(PathBuf, Vec<&'static str>)> {
     py.is_file().then_some((py, vec!["-3"]))
 }
 
-fn sha256_of(path: &PathBuf) -> Option<String> {
-    let out = Command::new("certutil.exe").args(["-hashfile"]).arg(path).arg("SHA256").creation_flags(CREATE_NO_WINDOW).output().ok()?;
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.replace(' ', "").to_lowercase())
-        .find(|l| l.len() == 64 && l.chars().all(|c| c.is_ascii_hexdigit()))
+/// Décompresse l'archive dans `dir` (les chemins qui sortiraient du dossier sont refusés).
+fn unzip(zip: &PathBuf, dir: &PathBuf) -> Result<(), String> {
+    let file = std::fs::File::open(zip).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    archive.extract(dir).map_err(|e| e.to_string())
 }
 
 /// Premier lancement : télécharge et décompresse Grammalecte (≈ 6 Mo), vérifié par son empreinte.
 fn install(dir: &PathBuf) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let zip = dir.with_extension("zip");
-    let ok = Command::new("curl.exe")
-        .args(["-sSL", "-m", "300", "-H", "User-Agent: Scriba", "-o"])
-        .arg(&zip)
-        .arg(URL)
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .is_ok_and(|s| s.success());
-    if !ok {
-        return Err("téléchargement impossible".into());
-    }
-    if sha256_of(&zip).as_deref() != Some(SHA256) {
+    let (_, sha) = crate::net::download(URL, &zip)?;
+    if sha != SHA256 {
         let _ = std::fs::remove_file(&zip);
         return Err("empreinte inattendue".into());
     }
-    let ok = Command::new("tar.exe").arg("-xf").arg(&zip).arg("-C").arg(dir).creation_flags(CREATE_NO_WINDOW).status().is_ok_and(|s| s.success());
+    let ok = unzip(&zip, dir).is_ok();
     let _ = std::fs::remove_file(&zip);
     if ok && dir.join("grammalecte").join("__init__.py").is_file() {
         Ok(())
@@ -129,22 +148,31 @@ pub fn start() {
         *s = State::Starting;
     }
     std::thread::spawn(|| {
-        let ready = run();
-        if !ready {
-            // on réessaiera au prochain lancement de Scriba ; d'ici là, les règles seules
+        // le processus Python peut s'arrêter (mise en veille, antivirus, mémoire) : on le relance, quelques fois
+        // seulement ; s'il n'a jamais démarré (Python absent, pas de réseau), on réessaiera au prochain lancement
+        for attempt in 0..5 {
+            let (was_ready, problem) = run();
+            set_state(State::Off, problem);
+            if !was_ready {
+                return;
+            }
+            std::thread::sleep(Duration::from_secs(5 * (attempt + 1)));
+            set_state(State::Starting, "");
         }
     });
 }
 
-fn run() -> bool {
-    let Some(dir) = package_dir() else { return false };
+/// Fait tourner Grammalecte jusqu'à son arrêt. Renvoie (il a été prêt, pourquoi il ne tourne plus).
+fn run() -> (bool, &'static str) {
+    let Some(dir) = package_dir() else { return (false, "désactivée") };
+    // Python d'abord : inutile de télécharger Grammalecte sur un PC qui ne pourra pas le lancer
+    let Some((py, pre)) = python() else { return (false, "Python n'est pas installé") };
     if ready_dir().is_none() && std::env::var_os("SCRIBA_GRAMMALECTE").is_none() && install(&dir).is_err() {
-        return false;
+        return (false, "téléchargement impossible");
     }
-    let Some((py, pre)) = python() else { return false };
     let script = dir.join("scriba_gc.py");
     if std::fs::read_to_string(&script).ok().as_deref() != Some(SCRIPT) && std::fs::write(&script, SCRIPT).is_err() {
-        return false;
+        return (false, "dossier non accessible");
     }
     let child = Command::new(py)
         .args(pre)
@@ -157,16 +185,17 @@ fn run() -> bool {
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
-    let Ok(mut child) = child else { return false };
-    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else { return false };
+    let Ok(mut child) = child else { return (false, "Python ne démarre pas") };
+    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else { return (false, "Python ne démarre pas") };
     let mut lines = BufReader::new(stdout);
     let mut first = String::new();
     if lines.read_line(&mut first).is_err() || first.trim() != "ready" {
         let _ = child.kill();
-        return false;
+        let _ = child.wait();
+        return (false, "Python ne démarre pas");
     }
     let (tx, rx) = channel::<Request>();
-    *state().lock().unwrap() = State::Ready(tx);
+    set_state(State::Ready(tx), "");
     // une requête à la fois : chaque réponse correspond toujours à sa question
     for (text, reply) in rx {
         let Ok(q) = serde_json::to_string(&text) else { continue };
@@ -180,8 +209,8 @@ fn run() -> bool {
         let _ = reply.send(parse(&line));
     }
     let _ = child.kill();
-    *state().lock().unwrap() = State::Off;
-    false
+    let _ = child.wait();
+    (true, "arrêt inattendu")
 }
 
 fn parse(line: &str) -> Vec<Error> {

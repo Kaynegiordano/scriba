@@ -179,6 +179,23 @@ pub static OWN_HWND: AtomicIsize = AtomicIsize::new(0);
 static SWALLOW_UP: AtomicU32 = AtomicU32::new(0);
 /// Verr. Maj est enfoncée (la répétition automatique d'une touche maintenue ne rebascule rien).
 static CAPS_HELD: AtomicBool = AtomicBool::new(false);
+/// Instant de la dernière touche suivie par Scriba.
+static LAST_KEY: AtomicU64 = AtomicU64::new(0);
+/// La fenêtre active est un jeu en plein écran : Scriba ne regarde plus la souris du tout (chaque mouvement
+/// passait par lui : sur une souris à 1000 Hz ou plus, c'est du travail pour rien pendant qu'on joue).
+static GAME: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" fn foreground_proc(
+    _hook: windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK,
+    _event: u32,
+    hwnd: HWND,
+    _object: i32,
+    _child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    GAME.store(!hwnd.is_null() && looks_like_game(hwnd), Ordering::Relaxed);
+}
 
 /// L'état réel de Verr. Maj, lu dans la file d'entrée de la fenêtre active. Le crochet clavier ne le voit
 /// pas lui-même : une bascule manquée (crochet retiré un instant par Windows, réglage « Maj désactive
@@ -210,7 +227,9 @@ fn real_caps() -> Option<bool> {
 fn watch_caps() {
     std::thread::spawn(|| loop {
         std::thread::sleep(std::time::Duration::from_millis(300));
-        if BUSY.load(Ordering::Relaxed) || CAPS_HELD.load(Ordering::Relaxed) {
+        // seulement pendant que l'élève écrit (rien pendant un jeu, une vidéo, ou PC au repos)
+        let typing = now_ms().saturating_sub(LAST_KEY.load(Ordering::Relaxed)) < 5000;
+        if !typing || BUSY.load(Ordering::Relaxed) || CAPS_HELD.load(Ordering::Relaxed) {
             continue;
         }
         if let Some(on) = real_caps() {
@@ -301,7 +320,8 @@ fn auto_candidate(st: &State, fg: isize, term: char) -> Option<AutoFix> {
     })
 }
 
-fn begin_hold() {
+/// Retient la frappe de l'élève le temps d'une retape (rejouée ensuite par `finish_hold`).
+pub fn begin_hold() {
     BUSY_SINCE.store(now_ms(), Ordering::SeqCst);
     BUSY.store(true, Ordering::SeqCst);
     HOLD.store(true, Ordering::SeqCst);
@@ -423,11 +443,20 @@ pub fn start(tx: Sender<Msg>) {
             MsgWaitForMultipleObjects, PeekMessageW, UnhookWindowsHookEx, PM_REMOVE, QS_ALLINPUT, WM_QUIT,
         };
         let module = GetModuleHandleW(std::ptr::null());
-        let install = || (
-            SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0),
-            SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0),
+        let hook_keys = || SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
+        let hook_mouse = || SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+        // prévenu à chaque changement de fenêtre active (aucune surveillance en boucle)
+        windows_sys::Win32::UI::Accessibility::SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            std::ptr::null_mut(),
+            Some(foreground_proc),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
         );
-        let (mut kb, mut mouse) = install();
+        let mut kb = hook_keys();
+        let mut mouse = hook_mouse();
         let mut last = std::time::Instant::now();
         let mut msg: MSG = std::mem::zeroed();
         loop {
@@ -439,12 +468,30 @@ pub fn start(tx: Sender<Msg>) {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            // Windows retire sans prévenir un branchement clavier jugé trop lent (ou après une veille) :
-            // on le remet régulièrement, sans rien casser s'il était encore en place.
-            if last.elapsed() >= std::time::Duration::from_secs(15) && !BUSY.load(Ordering::Relaxed) && !HOLD.load(Ordering::Relaxed) {
-                UnhookWindowsHookEx(kb);
+            let game = GAME.load(Ordering::Relaxed);
+            if game && !mouse.is_null() {
                 UnhookWindowsHookEx(mouse);
-                (kb, mouse) = install();
+                mouse = std::ptr::null_mut();
+            } else if !game && mouse.is_null() {
+                mouse = hook_mouse();
+            }
+            // Windows retire sans prévenir un branchement clavier jugé trop lent (ou après une veille) :
+            // on le remet régulièrement. Le nouveau est posé avant de retirer l'ancien : aucune touche
+            // ne passe entre les deux (une touche manquée fausse la phrase que Scriba retape).
+            if last.elapsed() >= std::time::Duration::from_secs(15) && !BUSY.load(Ordering::Relaxed) && !HOLD.load(Ordering::Relaxed) {
+                let old = kb;
+                kb = hook_keys();
+                if !old.is_null() {
+                    UnhookWindowsHookEx(old);
+                }
+                if !mouse.is_null() {
+                    let old = mouse;
+                    mouse = hook_mouse();
+                    UnhookWindowsHookEx(old);
+                }
+                // un jeu passe parfois en plein écran après être devenu la fenêtre active
+                let fg = GetForegroundWindow();
+                GAME.store(!fg.is_null() && looks_like_game(fg), Ordering::Relaxed);
                 last = std::time::Instant::now();
             }
         }
@@ -562,6 +609,7 @@ unsafe fn on_key_down(k: &KBDLLHOOKSTRUCT) -> bool {
         return false;
     }
 
+    LAST_KEY.store(now_ms(), Ordering::Relaxed);
     let mut st = STATE.lock().unwrap();
     if fg != st.last_fg {
         st.last_fg = fg;
